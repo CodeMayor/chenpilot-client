@@ -2,8 +2,6 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAppDispatch, useAppSelector } from '@/store';
 import { getAccountStatus, getBalance, deployAccount, fundAccount, getStellarNetworkStatus, getAccountTransactions } from '@/store/slices/accountSlice';
 import { loadUser } from '@/store/slices/authSlice';
@@ -11,6 +9,8 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { ChatLayout } from '@/components/layout/ChatLayout';
 import TransactionTable from '@/components/dashboard/TransactionTable';
+import DeploymentStepper from '@/components/deployment/DeploymentStepper';
+import { useDeploymentProgress } from '@/hooks/useDeploymentProgress';
 import {
   AlertTriangle,
   Bot,
@@ -20,21 +20,19 @@ import {
   Loader2,
   RefreshCw,
   Sparkles,
-  Wand2
+  Wand2,
   ShieldCheck,
   Wallet,
   Coins,
   Zap,
   Activity,
-  AlertTriangle,
-  Droplets
+  Droplets,
+  ExternalLink,
+  Circle,
+  ShieldLine,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { ChatLayout } from '@/components/layout/ChatLayout';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
 import apiService from '@/services/api';
-import { useAppSelector } from '@/store';
 import { PromptVersion, PromptVersionRecord } from '@/types';
 
 const DEFAULT_TEST_INPUT = 'Help a user move idle USDC into the highest-yield low-risk strategy.';
@@ -69,6 +67,27 @@ export default function DashboardPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [totalCount, setTotalCount] = useState(0);
+  const [showDeploymentStepper, setShowDeploymentStepper] = useState(false);
+  
+  const { progress, startDeployment, completeDeployment, failDeployment, moveToNextStep } = useDeploymentProgress();
+
+  const quickActions = [
+    {
+      title: 'Deploy Account',
+      description: 'Deploy your Stellar smart contract account',
+      action: () => setShowDeploymentStepper(true),
+    },
+    {
+      title: 'View Transactions',
+      description: 'Check your recent transaction history',
+      action: () => router.push('/transactions'),
+    },
+    {
+      title: 'Manage Contacts',
+      description: 'Add and manage your payment contacts',
+      action: () => router.push('/contacts'),
+    },
+  ];
 
 function getBoolean(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null;
@@ -457,6 +476,45 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          {/* Account Deployment Progress */}
+          {showDeploymentStepper && (
+            <Card className="mb-8">
+              <DeploymentStepper progress={progress} />
+              <div className="mt-4 flex justify-end space-x-3 pt-4 border-t border-gray-700">
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowDeploymentStepper(false)}
+                >
+                  Close
+                </Button>
+                {!progress.isComplete && !progress.hasError && (
+                  <Button
+                    onClick={() => {
+                      // Simulate deployment progress
+                      startDeployment();
+                      setTimeout(() => moveToNextStep(), 2000);
+                      setTimeout(() => moveToNextStep(), 4000);
+                      setTimeout(() => moveToNextStep(), 6000);
+                      setTimeout(() => moveToNextStep(), 8000);
+                      setTimeout(() => completeDeployment(), 10000);
+                    }}
+                  >
+                    Start Deployment
+                  </Button>
+                )}
+                {progress.hasError && (
+                  <Button
+                    onClick={() => {
+                      setShowDeploymentStepper(false);
+                    }}
+                  >
+                    Retry
+                  </Button>
+                )}
+              </div>
+            </Card>
+          )}
+
           {/* Quick Actions */}
           <div className="mb-8">
             <h2 className="text-2xl font-bold text-white mb-6">
@@ -516,366 +574,21 @@ export default function DashboardPage() {
                   <div className="flex items-center justify-between">
                     <h3 className="text-lg font-medium text-white">
                       Recent Chat Messages
-        {/* Stellar Network */}
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold text-white mb-6">
-            Stellar Network
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card>
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-300">
-                    Network Status
-                  </p>
-                  <div className="flex items-center space-x-2 mt-1">
-                    <Activity className={`h-4 w-4 ${networkStatusColor}`} />
-                    <span className={`text-lg font-semibold ${networkStatusColor}`}>
-                      {networkStatusLabel}
-                    </span>
+                    </h3>
                   </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  onClick={() => void loadVersions(true)}
-                  loading={isRefreshing}
-                  className="border border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
-                >
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  Refresh Versions
-                </Button>
-                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
-                  <div className="font-medium">Signed in as</div>
-                  <div className="text-emerald-50/90">{user?.email ?? 'Administrator'}</div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="grid gap-4 md:grid-cols-3">
-            <Card className="border-white/10 bg-slate-950/75 text-white shadow-lg shadow-slate-950/40">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-400">Available versions</p>
-                  <p className="mt-2 text-3xl font-semibold">{versions.length}</p>
-                </div>
-                <Bot className="h-8 w-8 text-cyan-300" />
-              </div>
-            </Card>
-            <Card className="border-white/10 bg-slate-950/75 text-white shadow-lg shadow-slate-950/40">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-400">Active version</p>
-                  <p className="mt-2 text-lg font-semibold text-emerald-300">
-                    {activeVersion?.label ?? 'No active version'}
+                  <p className="text-gray-400">
+                    {messages.length} message{messages.length !== 1 ? 's' : ''}
                   </p>
-                </div>
-                <CheckCircle2 className="h-8 w-8 text-emerald-300" />
-              </div>
-            </Card>
-            <Card className="border-white/10 bg-slate-950/75 text-white shadow-lg shadow-slate-950/40">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-slate-400">Simulation status</p>
-                  <p className="mt-2 text-lg font-semibold text-amber-200">
-                    {parsedVariables.error
-                      ? 'Fix variables JSON'
-                      : unresolvedPlaceholders.length > 0
-                        ? `${unresolvedPlaceholders.length} placeholder${unresolvedPlaceholders.length === 1 ? '' : 's'} missing`
-                        : 'Ready to test'}
-                  </p>
-                </div>
-                <FlaskConical className="h-8 w-8 text-amber-200" />
-              </div>
-            </Card>
-          </section>
-
-          {error && (
-            <section className="rounded-2xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-100">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="mt-0.5 h-5 w-5 text-red-300" />
-                <div>
-                  <p className="font-medium">The versions API could not be loaded.</p>
-                  <p className="mt-1 text-red-100/80">{error}</p>
-                </div>
-              </div>
-            </section>
-          )}
-
-          <section className="grid gap-6 xl:grid-cols-[1.05fr_1.45fr]">
-            <Card
-              title="Version Library"
-              subtitle="Loaded from GET /versions"
-              className="border-white/10 bg-slate-950/75 text-white shadow-xl shadow-slate-950/40"
-            >
-              {isLoading ? (
-                <div className="flex min-h-64 items-center justify-center">
-                  <div className="text-center">
-                    <Loader2 className="mx-auto h-8 w-8 animate-spin text-cyan-300" />
-                    <p className="mt-3 text-sm text-slate-400">Fetching prompt versions...</p>
-                  </div>
-                </div>
-              ) : versions.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-6 text-sm text-slate-300">
-                  No prompt versions were returned by the API.
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {versions.map((version) => {
-                    const isSelected = version.id === selectedVersion?.id;
-
-                    return (
-                      <button
-                        key={version.id}
-                        type="button"
-                        onClick={() => setSelectedId(version.id)}
-                        className={`w-full rounded-2xl border p-4 text-left transition ${
-                          isSelected
-                            ? 'border-cyan-400/60 bg-cyan-400/10 shadow-lg shadow-cyan-950/30'
-                            : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <p className="truncate text-base font-semibold text-white">{version.label}</p>
-                              {version.isActive && (
-                                <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-emerald-200">
-                                  Active
-                                </span>
-                              )}
-                            </div>
-                            <p className="mt-2 line-clamp-2 text-sm text-slate-300">{version.description}</p>
-                          </div>
-                          <Sparkles className={`h-5 w-5 shrink-0 ${isSelected ? 'text-cyan-200' : 'text-slate-500'}`} />
-                        </div>
-
-                        <div className="mt-4 flex flex-wrap gap-2 text-xs text-slate-400">
-                          <span className="rounded-full border border-white/10 bg-slate-900/70 px-2 py-1">
-                            {version.version}
-                          </span>
-                          <span className="rounded-full border border-white/10 bg-slate-900/70 px-2 py-1">
-                            Updated {safelyFormatDate(version.updatedAt)}
-                          </span>
-                          {version.tags.slice(0, 2).map((tag) => (
-                            <span
-                              key={tag}
-                              className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2 py-1 text-cyan-100"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </Card>
-
-            <div className="space-y-6">
-              <Card
-                title={selectedVersion?.label ?? 'Prompt details'}
-                subtitle={selectedVersion ? `Selected version ID: ${selectedVersion.id}` : 'Choose a version from the library'}
-                className="border-white/10 bg-slate-950/75 text-white shadow-xl shadow-slate-950/40"
-                actions={
-                  selectedVersion ? (
-                    <Button
-                      onClick={() => void handleActivate()}
-                      disabled={selectedVersion.isActive}
-                      loading={isActivating}
-                      className={`${
-                        selectedVersion.isActive
-                          ? 'bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500/20'
-                          : 'bg-cyan-500 text-slate-950 hover:bg-cyan-400'
-                      }`}
-                    >
-                      {selectedVersion.isActive ? 'Currently Active' : 'Activate Version'}
-                    </Button>
-                  ) : undefined
-                }
-              >
-                {selectedVersion ? (
-                  <div className="space-y-6">
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Created</p>
-                        <p className="mt-2 text-sm text-white">{safelyFormatDate(selectedVersion.createdAt)}</p>
-                      </div>
-                      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Updated</p>
-                        <p className="mt-2 text-sm text-white">{safelyFormatDate(selectedVersion.updatedAt)}</p>
-                      </div>
-                      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Source endpoint</p>
-                        <p className="mt-2 text-sm text-white">PATCH /versions/{selectedVersion.id}/activate</p>
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                      <div className="flex items-center justify-between gap-4">
-                        <div>
-                          <p className="text-sm font-medium text-white">Description</p>
-                          <p className="mt-2 text-sm leading-6 text-slate-300">{selectedVersion.description}</p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          onClick={() => copyText(selectedVersion.template, 'Template')}
-                          className="border border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
-                        >
-                          <Clipboard className="mr-2 h-4 w-4" />
-                          Copy
-                        </Button>
-                      </div>
-                    </div>
-
-                    <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-4">
-                      <div className="mb-3 flex items-center justify-between gap-4">
-                        <div>
-                          <p className="text-sm font-medium text-white">Template source</p>
-                          <p className="text-xs text-slate-400">Original prompt body from the selected version.</p>
-                        </div>
-                        <span className="text-xs text-slate-500">{selectedVersion.template.length} chars</span>
-                      </div>
-                      <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-slate-950 p-4 text-sm leading-6 text-cyan-50">
-                        {selectedVersion.template || 'No template body found on this version.'}
-                      </pre>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-6 text-sm text-slate-300">
-                    Select a prompt version to inspect details and activate it.
-                  </div>
-                )}
-              </Card>
-
-              <Card
-                title="Template Simulator"
-                subtitle="Use local substitutions to test how the selected template renders before activating it"
-                className="border-white/10 bg-slate-950/75 text-white shadow-xl shadow-slate-950/40"
-              >
-                {selectedVersion ? (
-                  <div className="space-y-5">
-                    <div className="grid gap-5 lg:grid-cols-2">
-                      <div className="space-y-3">
-                        <label className="block text-sm font-medium text-slate-200">Sample user input</label>
-                        <textarea
-                          value={testInput}
-                          onChange={(event) => setTestInput(event.target.value)}
-                          rows={6}
-                          className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-400/60"
-                          placeholder="Enter a user request to simulate template interpolation"
-                        />
-                        <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-slate-400">
-                          Available aliases injected automatically: `input`, `userInput`, `user_query`.
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        <label className="block text-sm font-medium text-slate-200">Variables JSON</label>
-                        <textarea
-                          value={variablesText}
-                          onChange={(event) => setVariablesText(event.target.value)}
-                          rows={6}
-                          className="w-full rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 font-mono text-sm text-white outline-none transition focus:border-cyan-400/60"
-                          placeholder='{"agentName":"ChenPilot"}'
-                        />
-                        {parsedVariables.error ? (
-                          <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-200">
-                            {parsedVariables.error}
-                          </div>
-                        ) : (
-                          <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-xs text-emerald-100">
-                            Variables parsed successfully.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {unresolvedPlaceholders.length > 0 && (
-                      <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-sm text-amber-100">
-                        <div className="flex items-start gap-3">
-                          <Wand2 className="mt-0.5 h-5 w-5 text-amber-200" />
-                          <div>
-                            <p className="font-medium">Some placeholders are still unresolved.</p>
-                            <p className="mt-1 text-amber-100/80">{unresolvedPlaceholders.join(', ')}</p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-4">
-                      <div className="mb-3 flex items-center justify-between gap-4">
-                        <div>
-                          <p className="text-sm font-medium text-white">Rendered prompt preview</p>
-                          <p className="text-xs text-slate-400">Local preview based on the selected version and the values above.</p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          onClick={() => copyText(renderedPrompt, 'Rendered prompt')}
-                          className="border border-white/10 bg-white/5 text-slate-100 hover:bg-white/10"
-                        >
-                          <Clipboard className="mr-2 h-4 w-4" />
-                          Copy Preview
-                        </Button>
-                      </div>
-                      <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-slate-950 p-4 text-sm leading-6 text-slate-100">
-                        {renderedPrompt || 'No rendered output yet.'}
-                      </pre>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 p-6 text-sm text-slate-300">
-                    Choose a version to start testing template output.
-                  </div>
-                )}
-              </Card>
-            </div>
-          </section>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-12">
-                  <h3 className="text-lg font-medium text-white mb-2">
-                    No recent activity
-                  </h3>
-                  <p className="text-gray-300 mb-4">
-                    Your recent transactions and interactions will appear here.
-                  </p>
-                  <Button
-                    onClick={() => router.push('/chat')}
-                  >
-                    Start with AI Agent
-                  </Button>
-                </div>
+                <p className="text-gray-400 text-center py-8">
+                  No recent activity
+                </p>
               )}
             </Card>
           </div>
-
-          {/* Transaction History */}
-          <div className="mb-8">
-            <h2 className="text-2xl font-bold text-white mb-6">
-              On-Chain Transaction History
-            </h2>
-            <TransactionTable
-              transactions={transactions.transactions}
-              isLoading={transactions.isLoading}
-              error={transactions.error}
-              currentPage={currentPage}
-              pageSize={pageSize}
-              totalCount={totalCount}
-              onPageChange={handlePageChange}
-              onPageSizeChange={handlePageSizeChange}
-            />
-          </div>
-
         </div>
       </div>
     </ChatLayout>
   );
-}
-
-function ShieldLine() {
-  return <span className="inline-block h-2 w-2 rounded-full bg-cyan-300" />;
 }

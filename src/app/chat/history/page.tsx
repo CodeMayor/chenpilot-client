@@ -6,6 +6,7 @@ import { useAppDispatch, useAppSelector } from '@/store';
 import { ChatLayout } from '@/components/layout/ChatLayout';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { History, MessageCircle, Clock } from 'lucide-react';
 
 export default function ChatHistoryPage() {
@@ -39,24 +40,16 @@ export default function ChatHistoryPage() {
             </div>
 
             {messages.length === 0 ? (
-              <Card>
-                <div className="text-center py-12">
-                  <History className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                    No chat history yet
-                  </h3>
-                  <p className="text-gray-600 dark:text-gray-400 mb-4">
-                    Your previous conversations will appear here once you start chatting.
-                  </p>
-                  <Button
-                    onClick={() => router.push('/chat')}
-                    className="inline-flex items-center"
-                  >
-                    <MessageCircle className="h-4 w-4 mr-2" />
-                    Start New Chat
-                  </Button>
-                </div>
-              </Card>
+              <EmptyState
+                icon={<History aria-hidden="true" className="h-8 w-8" />}
+                title="No chat history yet"
+                description="Your previous conversations will appear here once you start chatting."
+                action={{
+                  label: 'Start new chat',
+                  onClick: () => router.push('/chat'),
+                  icon: <MessageCircle aria-hidden="true" className="h-4 w-4" />,
+                }}
+              />
             ) : (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">

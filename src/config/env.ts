@@ -15,6 +15,7 @@ export const env = {
   // Application Configuration
   APP_NAME: process.env.NEXT_PUBLIC_APP_NAME || 'ChenPilot',
   APP_VERSION: process.env.NEXT_PUBLIC_APP_VERSION || '1.0.0',
+  STELLAR_NETWORK: process.env.NEXT_PUBLIC_STELLAR_NETWORK || '',
 
   // Environment
   NODE_ENV: process.env.NODE_ENV || 'development',
@@ -32,7 +33,12 @@ export const validateEnv = () => {
   const missing = required.filter(key => !process.env[key]);
   
   if (missing.length > 0) {
-    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+    const missingKeys = missing.join(', ');
+    throw new Error(
+      `[Env Config Error] Missing required environment variable(s): ${missingKeys}.\n` +
+      `Please create or update your '.env.local' file in the project root with valid settings (e.g. NEXT_PUBLIC_API_BASE_URL=http://localhost:2333).\n` +
+      `For help troubleshooting environment configuration, see docs/TROUBLESHOOTING.md.`
+    );
   }
 };
 

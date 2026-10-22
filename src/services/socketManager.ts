@@ -1,4 +1,5 @@
 import { io, Socket } from 'socket.io-client';
+import { logger } from "../utils/logger";
 
 export interface SocketConfig {
   url: string;
@@ -18,9 +19,10 @@ interface QueuedEvent {
   event: string;
   data?: unknown;
 }
-type SocketEventHandler = (...args: any[]) => void;
+type SocketEventHandler = (...args: unknown[]) => void;
 
 export class SocketManager {
+  private isRefreshingToken = false;
   private socket: Socket | null = null;
   private config: SocketConfig;
   private reconnectAttempts = 0;
@@ -30,8 +32,6 @@ export class SocketManager {
   private registeredHandlers = new Map<string, Set<SocketEventHandler>>();
 
   constructor(config: SocketConfig) {
-    const defaults = {
-      transports: ['websocket', 'polling'] as ('polling' | 'websocket')[],
     const defaultOptions: NonNullable<SocketConfig['options']> = {
       transports: ['websocket', 'polling'],
       autoConnect: true,
@@ -43,7 +43,7 @@ export class SocketManager {
 
     this.config = {
       ...config,
-      options: { ...defaults, ...(config.options || {}) },
+      options: { ...defaultOptions, ...(config.options || {}) },
     };
     this.queueEnabled = this.config.queueEnabled ?? false;
     this.maxQueueSize = this.config.maxQueueSize ?? 100;
@@ -63,13 +63,13 @@ export class SocketManager {
     this.socket = io(this.config.url, this.config.options);
 
     this.registerHandler('connect', () => {
-      console.log('Socket connected:', this.socket?.id);
+      logger.debug('Socket connected:', this.socket?.id);
       this.reconnectAttempts = 0;
       this.flushQueue();
     });
 
     this.registerHandler('disconnect', (reason) => {
-      console.log('Socket disconnected:', reason);
+      logger.debug('Socket disconnected:', reason);
     });
 
     this.registerHandler('connect_error', (error) => {
@@ -78,7 +78,7 @@ export class SocketManager {
     });
 
     this.registerHandler('reconnect', (attemptNumber) => {
-      console.log('Socket reconnected after', attemptNumber, 'attempts');
+      logger.debug('Socket reconnected after', attemptNumber, 'attempts');
       this.reconnectAttempts = 0;
       this.flushQueue();
     });
@@ -92,6 +92,31 @@ export class SocketManager {
     });
 
     return this.socket;
+  }
+
+  updateAuth(newToken: string): void {
+    if (this.config.options) {
+      this.config.options = {
+        ...this.config.options,
+        auth: { token: newToken },
+      };
+    } else {
+      this.config.options = { auth: { token: newToken } };
+    }
+
+    if (this.socket) {
+      if ((this.socket as any).auth) {
+        (this.socket as any).auth = { token: newToken };
+      }
+      if (!this.isRefreshingToken) {
+        this.isRefreshingToken = true;
+        this.removeRegisteredHandlers(this.socket);
+        this.socket.disconnect();
+        this.socket = null;
+        this.connect();
+        this.isRefreshingToken = false;
+      }
+    }
   }
 
   disconnect(): void {
