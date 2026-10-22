@@ -1,3 +1,6 @@
+
+import type React from "react";
+
 // User and Authentication Types
 export interface User {
   id: string;
@@ -53,7 +56,7 @@ export interface RegisterResponse {
     user: User;
     token: string;
     stellarAccount: StellarAccountInfo;
-    starknetAccount: StellarAccountInfo; // Alias for backward compatibility
+    starknetAccount: StellarAccountInfo;
     setupStatus: {
       funding: {
         success: boolean;
@@ -78,7 +81,7 @@ export interface LoginResponse {
     user: User;
     token: string;
     stellarAccount: StellarAccountInfo;
-    starknetAccount: StellarAccountInfo; // Alias for backward compatibility
+    starknetAccount: StellarAccountInfo;
   };
 }
 
@@ -152,34 +155,74 @@ export interface WalletBalance {
   nativeBalance: string;
 }
 
+// Stellar Trustline Types
+export interface Trustline {
+  assetCode: string;
+  assetIssuer: string;
+  balance: string;
+  limit: string;
+  buyingLiabilities?: string;
+  sellingLiabilities?: string;
+  assetType?: string;
+}
+
+export interface AddTrustlineRequest {
+  assetCode: string;
+  assetIssuer: string;
+  limit?: string;
+}
+
+export interface RemoveTrustlineRequest {
+  assetCode: string;
+  assetIssuer: string;
+}
+
 // Stellar Transaction Types
-export type TransactionDirection = 'incoming' | 'outgoing' | 'self' | 'unknown';
+export type TransactionDirection =
+  | "incoming"
+  | "outgoing"
+  | "self"
+  | "unknown";
 
 /**
- * Operation types the transaction UI has a curated label for. Horizon can emit
- * types outside this list, so `StellarOperation.type` stays a plain string and
- * unlisted values render with their raw type.
+ * Operation types the transaction UI has a curated label for.
+ * Horizon may return additional operation types, so StellarOperation.type
+ * remains a plain string.
  */
 export type StellarOperationType =
-  | 'payment'
-  | 'create_account'
-  | 'account_merge'
-  | 'manage_offer'
-  | 'create_passive_offer'
-  | 'set_options'
-  | 'change_trust'
-  | 'allow_trust'
-  | 'account_created'
-  | 'invoke_host_function'
-  | 'bump_sequence'
-  | 'ext_soroban_op';
+  | "payment"
+  | "create_account"
+  | "account_merge"
+  | "manage_offer"
+  | "create_passive_offer"
+  | "set_options"
+  | "change_trust"
+  | "allow_trust"
+  | "account_created"
+  | "invoke_host_function"
+  | "bump_sequence"
+  | "ext_soroban_op";
+
+/**
+ * Identifies a Stellar asset and its canonical representation.
+ */
+export interface AssetIdentifier {
+  code: string;
+  issuer?: string;
+  isNative: boolean;
+  canonical: string;
+  hasIncompleteMetadata?: boolean;
+}
 
 export interface StellarOperation {
   id: string;
-  /** Raw Horizon operation type, usually one of `StellarOperationType`. */
+  /** Raw Horizon operation type. */
   type: string;
   amount?: string;
   asset?: string;
+  asset_code?: string;
+  asset_issuer?: string;
+  asset_type?: string;
   from?: string;
   to?: string;
   source_account: string;
@@ -201,21 +244,19 @@ export interface StellarTransaction {
 
 /**
  * Lifecycle of a wallet action.
- *
- * `pending` means the action was submitted but no authoritative data has
- * confirmed its outcome yet. Only authoritative ledger data may move an entry
- * to `confirmed`, and only an authoritative failure (or a definitive submission
- * rejection) may move it to `failed`.
  */
-export type TransactionLifecycleStatus = "pending" | "confirmed" | "failed";
+export type TransactionLifecycleStatus =
+  | "pending"
+  | "confirmed"
+  | "failed";
 
 export interface PendingTransactionConfirmation {
-  /** Normalized transaction hash — the stable reconciliation key. */
+  /** Normalized transaction hash used for reconciliation. */
   hash: string;
   /** Human-readable description of the wallet action. */
   label: string;
   status: TransactionLifecycleStatus;
-  /** ISO timestamp of the last status change for this entry. */
+  /** ISO timestamp of the last status change. */
   updatedAt: string;
 }
 
@@ -223,19 +264,12 @@ export interface TransactionHistory {
   transactions: StellarTransaction[];
   isLoading: boolean;
   error: string | null;
-  /** True while a newest-page refresh is in flight (background refresh). */
   isRefreshing: boolean;
-  /** Error from the most recent refresh attempt; existing history is preserved. */
   refreshError: string | null;
-  /** ISO timestamp of the last successful authoritative sync of the newest page. */
   lastUpdatedAt: string | null;
-  /** Cursor for the next (older) page, or null when there is no next page. */
   nextCursor: string | null;
-  /** True while an older page is being loaded. */
   isLoadingMore: boolean;
-  /** Error from the most recent older-page load; existing history is preserved. */
   loadMoreError: string | null;
-  /** Submitted transactions awaiting authoritative confirmation, keyed by hash. */
   pending: PendingTransactionConfirmation[];
 }
 
@@ -275,34 +309,27 @@ export interface ExecutionStep {
 
 // Chat and Message Types
 
-/** Discriminates between plain text and voice messages */
+/** Discriminates between plain text and voice messages. */
 export type MessageType = "text" | "voice";
+
+/** Identifies who sent a chat message. */
+export type ChatMessageRole = "user" | "agent" | "system";
 
 export interface ChatMessage {
   id: string;
-  type: "user" | "agent" | "system";
-  /** 'text' (default) or 'voice' */
+  type: ChatMessageRole;
   messageType?: MessageType;
   content: string;
   timestamp: string;
   serverTimestamp?: number | string;
-  /** ID of the message this is a reply to (undefined for root messages) */
   parentId?: string;
-  /** Root message ID of the thread this message belongs to */
   threadId?: string;
-  /** Number of direct replies to this message (only tracked on root messages) */
   replyCount?: number;
-  /** Voice message fields — only present when messageType === 'voice' */
   voice?: {
-    /** Base64 data URL (e.g. "data:audio/webm;base64,...") stored for offline playback */
     audioUrl: string;
-    /** Recording duration in seconds */
     duration: number;
-    /** MIME type of the recorded audio (e.g. "audio/webm;codecs=opus") */
     mimeType: string;
-    /** Auto-generated transcript via Web Speech API (may be empty string) */
     transcript: string;
-    /** Approximate size of the audio data in bytes (before base64 encoding) */
     sizeBytes: number;
   };
   metadata?: {
@@ -325,13 +352,10 @@ export interface ChatMessage {
   };
 }
 
-/** Represents an open thread panel for a given root message */
+/** Represents an open thread panel for a root message. */
 export interface ThreadState {
-  /** ID of the root message whose thread is open */
   rootMessageId: string;
-  /** Flat list of reply messages in the thread */
   replies: ChatMessage[];
-  /** Whether the thread panel is typing an agent response */
   isTyping: boolean;
 }
 
@@ -408,7 +432,13 @@ export interface FormField {
   type: "text" | "email" | "password" | "number" | "select";
   placeholder?: string;
   required?: boolean;
-  validation?: { required?: boolean; min?: number; max?: number; pattern?: string; message?: string };
+  validation?: {
+    required?: boolean;
+    min?: number;
+    max?: number;
+    pattern?: string;
+    message?: string;
+  };
   options?: { value: string; label: string }[];
 }
 
@@ -440,10 +470,19 @@ export interface AuthState {
   error: string | null;
 }
 
+export interface TransactionFilters {
+  type: string;
+  asset: string;
+  direction: string;
+  startDate: string;
+  endDate: string;
+}
+
 export interface AccountState {
   status: AccountStatus | null;
   balance: WalletBalance | null;
   transactions: TransactionHistory;
+  filters?: TransactionFilters;
   isLoading: boolean;
   error: string | null;
   network: {
@@ -457,6 +496,9 @@ export interface AccountState {
     isLoading: boolean;
     error: string | null;
   };
+  trustlines: Trustline[];
+  isLoadingTrustlines: boolean;
+  trustlinesError: string | null;
 }
 
 export interface ContactsState {
@@ -482,12 +524,28 @@ export interface UIState {
   };
 }
 
+export interface PresenceState {
+  users: {
+    [userId: string]: {
+      userId: string;
+      userName: string;
+      status: "online" | "away" | "offline";
+      lastSeen: string;
+      conversationId?: string;
+    };
+  };
+  onlineCount: number;
+  awayCount: number;
+  offlineCount?: number;
+}
+
 export interface RootState {
   auth: AuthState;
   account: AccountState;
   contacts: ContactsState;
   chat: ChatState;
   ui: UIState;
+  presence: PresenceState;
 }
 
 // Component Props Types
@@ -502,7 +560,8 @@ export interface ButtonProps {
   className?: string;
 }
 
-export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+export interface InputProps
+  extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
   helperText?: string;
@@ -528,7 +587,6 @@ export interface CardProps {
 // Utility Types
 export type TokenType = "XLM" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
 export type AuthProvider = "email" | "google";
-export type MessageType = "user" | "agent" | "system";
 export type NotificationType = "success" | "error" | "warning" | "info";
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
@@ -581,7 +639,7 @@ export interface LiquidityRequest {
   sortOrder?: "asc" | "desc";
 }
 
-// === Audit Log Types ===
+// Audit Log Types
 export type AuditAction =
   | "user.login"
   | "user.logout"
@@ -668,22 +726,23 @@ export interface AuditLogStats {
 export interface SendPaymentRequest {
   recipientAddress: string;
   amount: string;
-  tokenType: 'XLM' | 'STRK' | 'USDC' | 'USDT' | 'BTC' | 'ETH' | 'AQUA';
+  tokenType: "XLM" | "STRK" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
   memo?: string;
-  memoType?: 'none' | 'text' | 'id' | 'hash';
-  recipientContactId?: string; // Optional reference to selected contact
+  memoType?: "none" | "text" | "id" | "hash";
+  recipientContactId?: string;
   idempotencyKey?: string;
 }
 
 export interface PaymentSubmissionResult {
-  status: 'pending' | 'submitted' | 'confirmed' | 'failed';
+  status: "pending" | "submitted" | "confirmed" | "failed";
   transactionHash?: string;
   transactionId?: string;
   message?: string;
 }
 
-export interface PaymentStatusResult extends Omit<PaymentSubmissionResult, 'status'> {
-  status: PaymentSubmissionResult['status'] | 'not_found';
+export interface PaymentStatusResult
+  extends Omit<PaymentSubmissionResult, "status"> {
+  status: PaymentSubmissionResult["status"] | "not_found";
 }
 
 export interface SendPaymentValidationResult {
@@ -697,7 +756,7 @@ export interface ContactSelection {
   id: string;
   name: string;
   address: string;
-  tokenType: 'XLM' | 'STRK' | 'USDC' | 'USDT' | 'BTC' | 'ETH' | 'AQUA';
+  tokenType: "XLM" | "STRK" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
   note?: string;
   avatar?: string;
   isFavorite?: boolean;
@@ -717,7 +776,7 @@ export interface ContactPickerProps {
   onClose: () => void;
   isOpen: boolean;
   isLoading?: boolean;
-  tokenType?: 'XLM' | 'USDC' | 'USDT' | 'BTC' | 'ETH' | 'AQUA';
+  tokenType?: "XLM" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
 }
 
 export interface PaymentLimits {
@@ -734,9 +793,18 @@ export interface PaymentFeeEstimate {
 }
 
 // Account Deployment Types
-export type DeploymentStep = 'auth' | 'funding' | 'deployment' | 'verification' | 'complete';
+export type DeploymentStep =
+  | "auth"
+  | "funding"
+  | "deployment"
+  | "verification"
+  | "complete";
 
-export type DeploymentStepStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+export type DeploymentStepStatus =
+  | "pending"
+  | "in_progress"
+  | "completed"
+  | "failed";
 
 export interface DeploymentStepInfo {
   id: DeploymentStep;
@@ -758,7 +826,7 @@ export interface DeploymentProgress {
 }
 
 export interface DeploymentConfig {
-  network: 'testnet' | 'mainnet';
+  network: "testnet" | "mainnet";
   fundingAmount: string;
   autoDeploy: boolean;
 }
