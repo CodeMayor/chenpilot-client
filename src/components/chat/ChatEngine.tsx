@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAppDispatch, useAppSelector } from '@/store';
 import { sendMessage, clearMessages, updateMessage, saveConversationLocally } from '@/store/slices/chatSlice';
 import AgentMessage from '@/components/chat/AgentMessage';
 import UserMessage from '@/components/chat/UserMessage';
+import { useChatSearchContext } from '@/components/layout/ChatLayout';
+import { findMatches } from '@/hooks/useChatSearch';
 import { 
   Send, 
   Mic, 
@@ -84,6 +86,56 @@ export const ChatEngine: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+
+  // ── Search ──────────────────────────────────────────────────────────────────
+  const { searchState, setTotalMatches } = useChatSearchContext();
+  const { query, activeIndex } = searchState;
+
+  // Compute per-message match counts and global offsets on every render so we
+  // can pass the correct `matchOffset` to each message component.
+  //
+  // We derive this from the resolved message text (same logic AgentMessage /
+  // UserMessage use to get the plain string) so the counts stay in sync.
+  const messageMatchData = React.useMemo(() => {
+    if (!query) return messages.map(() => ({ count: 0, offset: 0 }));
+
+    let offset = 0;
+    return messages.map((msg) => {
+      const text =
+        typeof msg.content === 'string'
+          ? msg.content
+          : typeof msg.content === 'object' && msg.content !== null
+          ? '' // structured content rendered differently – search still works on the resolved markdown string, but we skip counting here to avoid duplication; AgentMessage reports its own count
+          : String(msg.content ?? '');
+      const count = findMatches(text, query).length;
+      const result = { count, offset };
+      offset += count;
+      return result;
+    });
+  }, [messages, query]);
+
+  // Keep total match count in the hook.
+  const total = React.useMemo(
+    () => messageMatchData.reduce((sum, d) => sum + d.count, 0),
+    [messageMatchData]
+  );
+
+  useEffect(() => {
+    setTotalMatches(total);
+  }, [total, setTotalMatches]);
+
+  // Scroll the active match into view after render.
+  useEffect(() => {
+    if (activeIndex < 0 || !query) return;
+    requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(
+        `[data-search-match="${activeIndex}"]`
+      );
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, [activeIndex, query]);
+
+  // ── End Search ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
     scrollToBottom();
@@ -386,24 +438,36 @@ export const ChatEngine: React.FC = () => {
           </div>
         ) : (
           <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                {message.type === 'user' ? (
-                  <UserMessage 
-                    message={message} 
-                    onCopy={copyToClipboard}
-                    onEdit={handleEditMessage}
-                  />
-                ) : (
-                  <div className="max-w-2xl w-full">
-                    <AgentMessage message={message} onCopy={copyToClipboard} />
-                  </div>
-                )}
-              </div>
-            ))}
+            {messages.map((message, idx) => {
+              const { offset: matchOffset } = messageMatchData[idx] ?? { offset: 0 };
+              return (
+                <div
+                  key={message.id}
+                  className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  {message.type === 'user' ? (
+                    <UserMessage 
+                      message={message} 
+                      onCopy={copyToClipboard}
+                      onEdit={handleEditMessage}
+                      searchQuery={query}
+                      searchActiveIndex={activeIndex}
+                      searchMatchOffset={matchOffset}
+                    />
+                  ) : (
+                    <div className="max-w-2xl w-full">
+                      <AgentMessage
+                        message={message}
+                        onCopy={copyToClipboard}
+                        searchQuery={query}
+                        searchActiveIndex={activeIndex}
+                        searchMatchOffset={matchOffset}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             
             {isTyping && (
               <div className="flex justify-start">

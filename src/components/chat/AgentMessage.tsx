@@ -1,18 +1,35 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ChatMessage } from '@/types';
 import { Copy, Check } from 'lucide-react';
 import ExecutionTrace from './ExecutionTrace';
+import HighlightedText from '@/components/chat/HighlightedText';
+import { findMatches } from '@/hooks/useChatSearch';
 
 interface AgentMessageProps {
   message: ChatMessage;
   onCopy?: (text: string) => void;
+  /** Current search query string. Empty string disables highlighting. */
+  searchQuery?: string;
+  /** 0-based global index of the currently active match. -1 for none. */
+  searchActiveIndex?: number;
+  /**
+   * The global match index of the first match that falls inside this message.
+   * Used to compute the correct per-segment active index.
+   */
+  searchMatchOffset?: number;
 }
 
-export default function AgentMessage({ message, onCopy }: AgentMessageProps) {
+export default function AgentMessage({
+  message,
+  onCopy,
+  searchQuery = '',
+  searchActiveIndex = -1,
+  searchMatchOffset = 0,
+}: AgentMessageProps) {
   const [copied, setCopied] = useState(false);
 
   // Handle both string and object content
@@ -79,7 +96,6 @@ export default function AgentMessage({ message, onCopy }: AgentMessageProps) {
   const renderVaultsContent = (vaults: any[], marketInsights?: any) => {
     let content = `🏦 **Available Vaults (${vaults.length})**\n\n`;
     
-    // Add market insights if available
     if (marketInsights) {
       content += `📊 **Market Overview**\n` +
         `• Total TVL: ${marketInsights.totalTvl}\n` +
@@ -88,7 +104,6 @@ export default function AgentMessage({ message, onCopy }: AgentMessageProps) {
         `• Risk Distribution: ${marketInsights.riskDistribution.highRisk} High, ${marketInsights.riskDistribution.mediumRisk} Medium, ${marketInsights.riskDistribution.lowRisk} Low Risk\n\n`;
     }
     
-    // Add vault details
     content += `**Vault Details:**\n\n` +
       vaults.map(vault => 
         `**${vault.name}**\n` +
@@ -135,9 +150,9 @@ export default function AgentMessage({ message, onCopy }: AgentMessageProps) {
   };
 
   const renderDepositQuoteContent = (data: any) => {
-    const { message, vault, deposit, yieldProjections, fees, riskAssessment } = data;
+    const { message: msg, vault, deposit, yieldProjections, fees, riskAssessment } = data;
     
-    return `💰 **${message}**\n\n` +
+    return `💰 **${msg}**\n\n` +
       `**Vault Information:**\n` +
       `• Name: ${vault.name}\n` +
       `• Asset: ${vault.asset}\n` +
@@ -210,33 +225,87 @@ export default function AgentMessage({ message, onCopy }: AgentMessageProps) {
     try {
       await navigator.clipboard.writeText(content);
       setCopied(true);
-      if (onCopy) {
-        onCopy(content);
-      }
+      if (onCopy) onCopy(content);
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
       console.error('Failed to copy text:', error);
     }
   };
 
+  // Track a running offset so each text node in the markdown gets the right
+  // global match index. Re-created on each component render, stable within
+  // the single ReactMarkdown render pass.
+  const offsetTracker = useMemo(
+    () => ({ current: searchMatchOffset }),
+    [searchMatchOffset]
+  );
+
+  /**
+   * Wrap a child string (text node inside a ReactMarkdown component) with
+   * HighlightedText, advancing the running offset by the number of matches.
+   */
+  const wrapChildren = (children: React.ReactNode): React.ReactNode => {
+    if (!searchQuery) return children;
+    if (typeof children === 'string') {
+      const matchCount = findMatches(children, searchQuery).length;
+      const offset = offsetTracker.current;
+      offsetTracker.current += matchCount;
+      return (
+        <HighlightedText
+          text={children}
+          query={searchQuery}
+          activeIndex={searchActiveIndex}
+          matchOffset={offset}
+        />
+      );
+    }
+    return children;
+  };
+
   return (
     <div className="text-white text-left group relative">
       <div className="prose prose-invert prose-lg max-w-none leading-relaxed pr-8">
-        <ReactMarkdown 
+        <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
-            p: ({ children, ...props }: any) => <p className="mb-3 last:mb-0" {...props}>{children}</p>,
-            strong: ({ children, ...props }: any) => <strong className="font-semibold text-white" {...props}>{children}</strong>,
-            em: ({ children, ...props }: any) => <em className="italic text-gray-300" {...props}>{children}</em>,
-            code: ({ children, ...props }: any) => <code className="bg-gray-800 text-green-400 px-1 py-0.5 rounded text-sm" {...props}>{children}</code>,
-            pre: ({ children, ...props }: any) => <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto my-4" {...props}>{children}</pre>,
-            ul: ({ children, ...props }: any) => <ul className="list-disc list-inside mb-3 space-y-1" {...props}>{children}</ul>,
-            ol: ({ children, ...props }: any) => <ol className="list-decimal list-inside mb-3 space-y-1" {...props}>{children}</ol>,
-            li: ({ children, ...props }: any) => <li className="text-gray-200" {...props}>{children}</li>,
-            h1: ({ children, ...props }: any) => <h1 className="text-2xl font-bold text-white mb-4" {...props}>{children}</h1>,
-            h2: ({ children, ...props }: any) => <h2 className="text-xl font-bold text-white mb-3" {...props}>{children}</h2>,
-            h3: ({ children, ...props }: any) => <h3 className="text-lg font-semibold text-white mb-2" {...props}>{children}</h3>,
-            blockquote: ({ children, ...props }: any) => <blockquote className="border-l-4 border-purple-500 pl-4 italic text-gray-300 my-4" {...props}>{children}</blockquote>,
+            p: ({ children, ...props }: any) => (
+              <p className="mb-3 last:mb-0" {...props}>{wrapChildren(children)}</p>
+            ),
+            strong: ({ children, ...props }: any) => (
+              <strong className="font-semibold text-white" {...props}>{wrapChildren(children)}</strong>
+            ),
+            em: ({ children, ...props }: any) => (
+              <em className="italic text-gray-300" {...props}>{wrapChildren(children)}</em>
+            ),
+            code: ({ children, ...props }: any) => (
+              <code className="bg-gray-800 text-green-400 px-1 py-0.5 rounded text-sm" {...props}>
+                {wrapChildren(children)}
+              </code>
+            ),
+            pre: ({ children, ...props }: any) => (
+              <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto my-4" {...props}>{children}</pre>
+            ),
+            ul: ({ children, ...props }: any) => (
+              <ul className="list-disc list-inside mb-3 space-y-1" {...props}>{children}</ul>
+            ),
+            ol: ({ children, ...props }: any) => (
+              <ol className="list-decimal list-inside mb-3 space-y-1" {...props}>{children}</ol>
+            ),
+            li: ({ children, ...props }: any) => (
+              <li className="text-gray-200" {...props}>{wrapChildren(children)}</li>
+            ),
+            h1: ({ children, ...props }: any) => (
+              <h1 className="text-2xl font-bold text-white mb-4" {...props}>{wrapChildren(children)}</h1>
+            ),
+            h2: ({ children, ...props }: any) => (
+              <h2 className="text-xl font-bold text-white mb-3" {...props}>{wrapChildren(children)}</h2>
+            ),
+            h3: ({ children, ...props }: any) => (
+              <h3 className="text-lg font-semibold text-white mb-2" {...props}>{wrapChildren(children)}</h3>
+            ),
+            blockquote: ({ children, ...props }: any) => (
+              <blockquote className="border-l-4 border-purple-500 pl-4 italic text-gray-300 my-4" {...props}>{wrapChildren(children)}</blockquote>
+            ),
           }}
         >
           {renderContent()}
