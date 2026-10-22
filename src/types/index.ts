@@ -7,7 +7,7 @@ export interface User {
   publicKey: string;
   isDeployed: boolean;
   isFunded: boolean;
-  tokenType: TokenType;
+  tokenType: "XLM";
   authProvider: "email" | "google";
   isEmailVerified: boolean;
   createdAt: string;
@@ -82,29 +82,56 @@ export interface LoginResponse {
   };
 }
 
+// Multi-Factor Authentication (MFA) Types
+export interface MfaStatusData {
+  enabled: boolean;
+  enrolledAt?: string;
+  method?: "totp" | null;
+}
+
+export interface MfaEnrollmentData {
+  secret: string;
+  qrCodeUrl?: string;
+  otpAuthUri?: string;
+  recoveryCodes?: string[];
+}
+
+export interface MfaVerifyRequest {
+  code: string;
+}
+
+export interface MfaVerifyData {
+  enabled: boolean;
+  message?: string;
+  recoveryCodes?: string[];
+}
+
 // Contact Management Types
 export interface Contact {
   id: string;
   name: string;
   address: string;
-  tokenType: TokenType;
+  tokenType: "XLM" | "STRK" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
+  note?: string;
   createdAt: string;
   updatedAt: string;
-  isFavorite?: boolean;
   avatar?: string;
+  isFavorite?: boolean;
   lastUsed?: string;
-}
-
-export interface UpdateContactRequest {
-  name?: string;
-  address?: string;
-  tokenType?: TokenType;
 }
 
 export interface CreateContactRequest {
   name: string;
   address: string;
-  tokenType: TokenType;
+  tokenType: "XLM" | "STRK" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
+  note?: string;
+}
+
+export interface UpdateContactRequest {
+  name?: string;
+  address?: string;
+  tokenType?: "XLM" | "STRK" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
+  note?: string;
 }
 
 // Balance and Wallet Types
@@ -126,6 +153,8 @@ export interface WalletBalance {
 }
 
 // Stellar Transaction Types
+export type TransactionDirection = 'incoming' | 'outgoing' | 'self' | 'unknown';
+
 export interface StellarOperation {
   id: string;
   type: string; // e.g., 'payment', 'create_account', 'trust', etc.
@@ -134,6 +163,7 @@ export interface StellarOperation {
   from?: string;
   to?: string;
   source_account: string;
+  direction?: TransactionDirection;
 }
 
 export interface StellarTransaction {
@@ -143,17 +173,51 @@ export interface StellarTransaction {
   created_at: string;
   source_account: string;
   fee_charged: string;
-  memo?: string;
   operation_count: number;
   successful: boolean;
   operations: StellarOperation[];
+  direction?: TransactionDirection;
+  memo?: string;
+}
+
+/**
+ * Lifecycle of a wallet action.
+ *
+ * `pending` means the action was submitted but no authoritative data has
+ * confirmed its outcome yet. Only authoritative ledger data may move an entry
+ * to `confirmed`, and only an authoritative failure (or a definitive submission
+ * rejection) may move it to `failed`.
+ */
+export type TransactionLifecycleStatus = "pending" | "confirmed" | "failed";
+
+export interface PendingTransactionConfirmation {
+  /** Normalized transaction hash — the stable reconciliation key. */
+  hash: string;
+  /** Human-readable description of the wallet action. */
+  label: string;
+  status: TransactionLifecycleStatus;
+  /** ISO timestamp of the last status change for this entry. */
+  updatedAt: string;
 }
 
 export interface TransactionHistory {
   transactions: StellarTransaction[];
-  total: number;
   isLoading: boolean;
   error: string | null;
+  /** True while a newest-page refresh is in flight (background refresh). */
+  isRefreshing: boolean;
+  /** Error from the most recent refresh attempt; existing history is preserved. */
+  refreshError: string | null;
+  /** ISO timestamp of the last successful authoritative sync of the newest page. */
+  lastUpdatedAt: string | null;
+  /** Cursor for the next (older) page, or null when there is no next page. */
+  nextCursor: string | null;
+  /** True while an older page is being loaded. */
+  isLoadingMore: boolean;
+  /** Error from the most recent older-page load; existing history is preserved. */
+  loadMoreError: string | null;
+  /** Submitted transactions awaiting authoritative confirmation, keyed by hash. */
+  pending: PendingTransactionConfirmation[];
 }
 
 // Agent Query Types
@@ -190,22 +254,23 @@ export interface ExecutionStep {
   substeps?: ExecutionStep[];
 }
 
-export interface MessageFeedback {
-  rating: "up" | "down";
-  comment?: string;
-  submittedAt: string;
-}
-
 // Chat and Message Types
 
 /** Discriminates between plain text and voice messages */
-export type VoiceMessageType = "text" | "voice";
+export type MessageType = "text" | "voice";
+export type FeedbackRating = "up" | "down";
+
+export interface MessageFeedback {
+  rating: FeedbackRating;
+  comment?: string;
+  submittedAt: string;
+}
 
 export interface ChatMessage {
   id: string;
   type: "user" | "agent" | "system";
   /** 'text' (default) or 'voice' */
-  messageType?: VoiceMessageType;
+  messageType?: MessageType;
   content: string;
   timestamp: string;
   serverTimestamp?: number | string;
@@ -229,11 +294,10 @@ export interface ChatMessage {
     sizeBytes: number;
   };
   metadata?: {
-    feedback?: MessageFeedback;
     transactionHash?: string;
     amount?: string;
     tokenType?: string;
-    status?: "pending" | "success" | "failed";
+    status?: "pending" | "success" | "failed" | "cancelled";
     success?: boolean;
     error?: string;
     type?: string;
@@ -241,6 +305,7 @@ export interface ChatMessage {
     asset?: string;
     requiresConfirmation?: boolean;
     executionTrace?: ExecutionTrace;
+    feedback?: MessageFeedback;
     rawData?: Record<string, unknown>;
     serverTimestamp?: number | string;
     clientTimestamp?: number | string;
@@ -332,13 +397,7 @@ export interface FormField {
   type: "text" | "email" | "password" | "number" | "select";
   placeholder?: string;
   required?: boolean;
-  validation?: {
-    required?: boolean;
-    min?: number;
-    max?: number;
-    pattern?: string;
-    message?: string;
-  };
+  validation?: { required?: boolean; min?: number; max?: number; pattern?: string; message?: string };
   options?: { value: string; label: string }[];
 }
 
@@ -447,7 +506,7 @@ export interface ModalProps {
   className?: string;
 }
 
-export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface CardProps {
   title?: string;
   subtitle?: string;
   children: React.ReactNode;
@@ -458,7 +517,6 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 // Utility Types
 export type TokenType = "XLM" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
 export type AuthProvider = "email" | "google";
-export type MessageRole = "user" | "agent" | "system";
 export type NotificationType = "success" | "error" | "warning" | "info";
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
@@ -598,10 +656,22 @@ export interface AuditLogStats {
 export interface SendPaymentRequest {
   recipientAddress: string;
   amount: string;
-  tokenType: "XLM" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
+  tokenType: 'XLM' | 'STRK' | 'USDC' | 'USDT' | 'BTC' | 'ETH' | 'AQUA';
   memo?: string;
-  memoType?: "none" | "text" | "id" | "hash";
+  memoType?: 'none' | 'text' | 'id' | 'hash';
   recipientContactId?: string; // Optional reference to selected contact
+  idempotencyKey?: string;
+}
+
+export interface PaymentSubmissionResult {
+  status: 'pending' | 'submitted' | 'confirmed' | 'failed';
+  transactionHash?: string;
+  transactionId?: string;
+  message?: string;
+}
+
+export interface PaymentStatusResult extends Omit<PaymentSubmissionResult, 'status'> {
+  status: PaymentSubmissionResult['status'] | 'not_found';
 }
 
 export interface SendPaymentValidationResult {
@@ -615,7 +685,8 @@ export interface ContactSelection {
   id: string;
   name: string;
   address: string;
-  tokenType: "XLM" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
+  tokenType: 'XLM' | 'STRK' | 'USDC' | 'USDT' | 'BTC' | 'ETH' | 'AQUA';
+  note?: string;
   avatar?: string;
   isFavorite?: boolean;
   lastUsed?: string;
@@ -634,7 +705,7 @@ export interface ContactPickerProps {
   onClose: () => void;
   isOpen: boolean;
   isLoading?: boolean;
-  tokenType?: "XLM" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
+  tokenType?: 'XLM' | 'USDC' | 'USDT' | 'BTC' | 'ETH' | 'AQUA';
 }
 
 export interface PaymentLimits {
@@ -651,18 +722,9 @@ export interface PaymentFeeEstimate {
 }
 
 // Account Deployment Types
-export type DeploymentStep =
-  | "auth"
-  | "funding"
-  | "deployment"
-  | "verification"
-  | "complete";
+export type DeploymentStep = 'auth' | 'funding' | 'deployment' | 'verification' | 'complete';
 
-export type DeploymentStepStatus =
-  | "pending"
-  | "in_progress"
-  | "completed"
-  | "failed";
+export type DeploymentStepStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 
 export interface DeploymentStepInfo {
   id: DeploymentStep;
@@ -684,7 +746,7 @@ export interface DeploymentProgress {
 }
 
 export interface DeploymentConfig {
-  network: "testnet" | "mainnet";
+  network: 'testnet' | 'mainnet';
   fundingAmount: string;
   autoDeploy: boolean;
 }

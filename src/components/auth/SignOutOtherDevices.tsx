@@ -23,6 +23,7 @@ export default function SignOutOtherDevices() {
       setIsConfirming(false);
       toast.success("Other devices have been signed out. They will need to sign in again.");
       if (result.currentSessionRevoked) {
+        authService.clearLocalSession();
         dispatch(clearAuth());
         router.replace("/auth/login");
       } else {

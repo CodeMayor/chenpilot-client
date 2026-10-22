@@ -1,30 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
-import accountReducer from "@/store/slices/accountSlice";
+import accountReducer, { updateAccountStatus } from "@/store/slices/accountSlice";
 import authReducer, { login } from "@/store/slices/authSlice";
 import TransactionsPage from "./page";
 
 const { push } = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
-const { getAccountTransactions } = vi.hoisted(() => ({
-  getAccountTransactions: vi.fn(),
-}));
-
-vi.mock("@/services/api", () => ({
-  default: {
-    getAccountTransactions,
-    setStore: vi.fn(),
-  },
-}));
+const { horizonFetch } = vi.hoisted(() => ({ horizonFetch: vi.fn() }));
 
 vi.mock("@/utils/horizonFetch", () => ({
-  horizonFetch: vi.fn().mockResolvedValue({
-    ok: true,
-    json: async () => ({ _embedded: { records: [] } }),
-  }),
+  horizonFetch,
 }));
 
 const transaction = {
@@ -54,6 +42,7 @@ function renderPage() {
     reducer: { account: accountReducer, auth: authReducer },
   });
   store.dispatch(login({ email: "person@example.com", password: "Password1" }));
+  store.dispatch(updateAccountStatus({ publicKey: "G" + "A".repeat(55) }));
   render(
     <Provider store={store}>
       <TransactionsPage />
@@ -66,7 +55,7 @@ function renderPage() {
 // loading state and then by the settled result. Wait for the request to be
 // issued and for the slice to settle before asserting on the DOM.
 async function waitForSettled(store: ReturnType<typeof renderPage>) {
-  await waitFor(() => expect(getAccountTransactions).toHaveBeenCalled());
+  await waitFor(() => expect(horizonFetch).toHaveBeenCalled());
   await waitFor(() =>
     expect(store.getState().account.transactions.isLoading).toBe(false),
   );
@@ -75,9 +64,9 @@ async function waitForSettled(store: ReturnType<typeof renderPage>) {
 describe("TransactionsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getAccountTransactions.mockResolvedValue({
-      success: true,
-      data: { transactions: [], total: 0, page: 1, limit: 10 },
+    horizonFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ _embedded: { records: [] } }),
     });
   });
 
@@ -88,10 +77,28 @@ describe("TransactionsPage", () => {
     expect(screen.getByText("No transactions yet")).toBeInTheDocument();
   });
 
-  it("renders the transaction table with the stored transactions", async () => {
-    getAccountTransactions.mockResolvedValue({
-      success: true,
-      data: { transactions: [transaction], total: 1, page: 1, limit: 10 },
+  it("opens details for a stored transaction", async () => {
+    horizonFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        _embedded: {
+          records: [{
+            ...transaction,
+            _embedded: {
+              records: [{
+                id: "op-1",
+                type: "payment",
+                amount: "25",
+                asset_type: "credit_alphanum4",
+                asset_code: "USDC",
+                asset_issuer: "Gissuer",
+                to: "Gdestination",
+                source_account: "Gsource",
+              }],
+            },
+          }],
+        },
+      }),
     });
 
     const store = renderPage();
@@ -99,9 +106,14 @@ describe("TransactionsPage", () => {
 
     const { transactions } = store.getState().account;
     expect(transactions.transactions).toHaveLength(1);
-    expect(transactions.total).toBe(1);
     expect(
-      screen.getByRole("row", { name: /view transaction details for payment/i }),
+      screen.getByRole("button", { name: /view details for transaction/i }),
     ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /view details for transaction/i }),
+    );
+    expect(screen.getByRole("dialog")).toHaveTextContent("Invoice 42");
+    expect(screen.getByRole("dialog")).toHaveTextContent("25 USDC");
   });
 });

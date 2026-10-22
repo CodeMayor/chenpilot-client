@@ -1,6 +1,29 @@
-import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
-import { Contact, CreateContactRequest, UpdateContactRequest } from "@/types";
-import apiService from "@/services/api";
+import { createSlice, createAsyncThunk, PayloadAction } from '@reduxjs/toolkit';
+import { Contact, CreateContactRequest, UpdateContactRequest } from '@/types';
+import apiService from '@/services/api';
+import { PAGINATION } from '@/constants';
+
+export const paginateContacts = (
+  contacts: Contact[],
+  page: number,
+  pageSize = PAGINATION.CONTACTS_PAGE_SIZE,
+): Contact[] => {
+  const start = Math.max(0, page - 1) * pageSize;
+  return contacts.slice(start, start + pageSize);
+};
+export const hasContactAddressChanged = (savedAddress: string, proposedAddress: string): boolean =>
+  proposedAddress.trim() !== savedAddress;
+
+export const filterContacts = (contacts: Contact[], searchTerm: string): Contact[] => {
+  const normalizedTerm = searchTerm.trim().toLowerCase();
+  if (!normalizedTerm) return contacts;
+
+  return contacts.filter((contact) =>
+    contact.name.toLowerCase().includes(normalizedTerm) ||
+    contact.address.toLowerCase().includes(normalizedTerm) ||
+    (contact.note ?? '').toLowerCase().includes(normalizedTerm)
+  );
+};
 
 interface ContactsState {
   list: Contact[];
@@ -18,33 +41,35 @@ const initialState: ContactsState = {
 
 // Async thunks
 export const getContacts = createAsyncThunk(
-  "contacts/getContacts",
+  'contacts/getContacts',
   async (_, { rejectWithValue }) => {
     // Mock contacts
     const mockContacts: Contact[] = [
       {
-        id: "1",
-        name: "Mock Contact 1",
-        address: "0x1234567890abcdef",
-        tokenType: "XLM",
+        id: '1',
+        name: 'Mock Contact 1',
+        address: '0x1234567890abcdef',
+        tokenType: 'STRK',
+        note: 'Primary trading account for A/B testing.',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
       {
-        id: "2",
-        name: "Mock Contact 2",
-        address: "0xabcdef1234567890",
-        tokenType: "ETH",
+        id: '2',
+        name: 'Mock Contact 2',
+        address: '0xabcdef1234567890',
+        tokenType: 'ETH',
+        note: 'Treasury vault for monthly settlements.',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
     ];
     return mockContacts;
-  },
+  }
 );
 
 export const createContact = createAsyncThunk(
-  "contacts/createContact",
+  'contacts/createContact',
   async (contactData: CreateContactRequest, { rejectWithValue }) => {
     // Mock create contact
     const mockContact: Contact = {
@@ -52,42 +77,41 @@ export const createContact = createAsyncThunk(
       name: contactData.name,
       address: contactData.address,
       tokenType: contactData.tokenType,
+      note: contactData.note?.trim() || undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     return mockContact;
-  },
+  }
 );
 
 export const updateContact = createAsyncThunk(
-  "contacts/updateContact",
-  async (
-    { id, data }: { id: string; data: UpdateContactRequest },
-    { rejectWithValue },
-  ) => {
+  'contacts/updateContact',
+  async ({ id, data }: { id: string; data: UpdateContactRequest }, { rejectWithValue }) => {
     // Mock update contact
     const mockContact: Contact = {
       id,
-      name: data.name || "Updated Contact",
-      address: data.address || "0xupdatedaddress",
-      tokenType: data.tokenType || "XLM",
+      name: data.name || 'Updated Contact',
+      address: data.address || '0xupdatedaddress',
+      tokenType: data.tokenType || 'STRK',
+      note: data.note?.trim() || undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
     return mockContact;
-  },
+  }
 );
 
 export const deleteContact = createAsyncThunk(
-  "contacts/deleteContact",
+  'contacts/deleteContact',
   async (id: string, { rejectWithValue }) => {
     // Mock delete contact - always succeed
     return id;
-  },
+  }
 );
 
 const contactsSlice = createSlice({
-  name: "contacts",
+  name: 'contacts',
   initialState,
   reducers: {
     clearError: (state) => {
@@ -141,9 +165,7 @@ const contactsSlice = createSlice({
       })
       .addCase(updateContact.fulfilled, (state, action) => {
         state.isLoading = false;
-        const index = state.list.findIndex(
-          (contact) => contact.id === action.payload.id,
-        );
+        const index = state.list.findIndex(contact => contact.id === action.payload.id);
         if (index !== -1) {
           state.list[index] = action.payload;
         }
@@ -163,9 +185,7 @@ const contactsSlice = createSlice({
       })
       .addCase(deleteContact.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.list = state.list.filter(
-          (contact) => contact.id !== action.payload,
-        );
+        state.list = state.list.filter(contact => contact.id !== action.payload);
         if (state.selectedContact?.id === action.payload) {
           state.selectedContact = null;
         }
@@ -178,10 +198,5 @@ const contactsSlice = createSlice({
   },
 });
 
-export const {
-  clearError,
-  setSelectedContact,
-  clearSelectedContact,
-  searchContacts,
-} = contactsSlice.actions;
+export const { clearError, setSelectedContact, clearSelectedContact, searchContacts } = contactsSlice.actions;
 export default contactsSlice.reducer;

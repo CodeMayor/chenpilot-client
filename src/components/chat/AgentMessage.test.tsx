@@ -1,34 +1,30 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import { Provider } from "react-redux";
 import { configureStore } from "@reduxjs/toolkit";
-import chatReducer, { addMessage } from "@/store/slices/chatSlice";
+import type { ReactNode } from "react";
 import AgentMessage from "./AgentMessage";
+import { ChatMessage } from "@/types";
+import chatReducer from "@/store/slices/chatSlice";
 import { submitFeedback } from "@/services/feedbackService";
-import type { ChatMessage } from "@/types";
 
 vi.mock("@/services/feedbackService", () => ({
   submitFeedback: vi.fn().mockResolvedValue(undefined),
 }));
-
-// CodeBlock depends on the optional highlight.js assets; the feedback tests
-// only need the markdown passthrough, so keep the dependency out of the suite.
 vi.mock("./CodeBlock", () => ({
-  CodeBlock: ({ children, className }: { children?: React.ReactNode; className?: string }) => (
-    <code className={className}>{children}</code>
-  ),
+  CodeBlock: ({ children }: { children: ReactNode }) => <code>{children}</code>,
 }));
 
-const message: ChatMessage = {
-  id: "agent-answer",
+const agentMessage: ChatMessage = {
+  id: "agent-1",
   type: "agent",
-  content: "A helpful answer",
-  timestamp: "2026-10-20T00:00:00.000Z",
+  content: "Previous answer",
+  timestamp: "2026-10-21T00:00:00.000Z",
 };
 
-function renderMessage() {
+function renderAgentMessage(message = agentMessage) {
   const store = configureStore({ reducer: { chat: chatReducer } });
-  store.dispatch(addMessage(message));
+  store.dispatch({ type: "chat/setMessages", payload: [message] });
   render(
     <Provider store={store}>
       <AgentMessage message={message} />
@@ -37,25 +33,64 @@ function renderMessage() {
   return store;
 }
 
-describe("AgentMessage feedback", () => {
-  beforeEach(() => vi.clearAllMocks());
+beforeEach(() => vi.clearAllMocks());
 
-  it("updates the chat state and calls the feedback seam once", () => {
-    const store = renderMessage();
-    fireEvent.click(screen.getByRole("button", { name: "Thumbs up" }));
+describe("AgentMessage regenerate", () => {
+  it("dispatches regenerate exactly once", () => {
+    const onRegenerate = vi.fn();
+    const store = configureStore({ reducer: { chat: chatReducer } });
+    render(
+      <Provider store={store}>
+        <AgentMessage
+          message={agentMessage}
+          onRegenerate={onRegenerate}
+          canRegenerate
+        />
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Regenerate/i }));
+    expect(onRegenerate).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables regenerate while another query is running", () => {
+    const onRegenerate = vi.fn();
+    const store = configureStore({ reducer: { chat: chatReducer } });
+    render(
+      <Provider store={store}>
+        <AgentMessage
+          message={agentMessage}
+          onRegenerate={onRegenerate}
+          canRegenerate={false}
+        />
+      </Provider>,
+    );
+
+    expect(screen.getByRole("button", { name: /Regenerate/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /Regenerate/i }));
+    expect(onRegenerate).not.toHaveBeenCalled();
+  });
+
+  it("updates feedback state and calls the submit seam once", () => {
+    const store = renderAgentMessage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Helpful" }));
 
     expect(store.getState().chat.messages[0].metadata?.feedback?.rating).toBe("up");
     expect(submitFeedback).toHaveBeenCalledTimes(1);
-    expect(submitFeedback).toHaveBeenCalledWith("agent-answer", expect.objectContaining({ rating: "up" }));
+    expect(submitFeedback).toHaveBeenCalledWith(
+      "agent-1",
+      expect.objectContaining({ rating: "up" }),
+    );
   });
 
-  it("opens the negative comment prompt and permits dismissing without rating", () => {
-    const store = renderMessage();
-    fireEvent.click(screen.getByRole("button", { name: "Thumbs down" }));
-    expect(screen.getByRole("dialog", { name: "Tell us what was wrong" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(submitFeedback).not.toHaveBeenCalled();
+  it("lets a user dismiss the negative-feedback prompt without rating", () => {
+    const store = renderAgentMessage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Not helpful" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+
     expect(store.getState().chat.messages[0].metadata?.feedback).toBeUndefined();
+    expect(submitFeedback).not.toHaveBeenCalled();
   });
 });

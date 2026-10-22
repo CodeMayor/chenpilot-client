@@ -15,7 +15,6 @@ interface ForgotPasswordFormData {
 
 export default function ForgotPasswordForm() {
   const [submitted, setSubmitted] = useState(false);
-  const [requestError, setRequestError] = useState<string | null>(null);
   const {
     register,
     handleSubmit,
@@ -23,7 +22,6 @@ export default function ForgotPasswordForm() {
   } = useForm<ForgotPasswordFormData>({ resolver: zodResolver(forgotPasswordSchema) });
 
   const onSubmit = async ({ email }: ForgotPasswordFormData) => {
-    setRequestError(null);
     try {
       await authService.requestPasswordReset(email);
     } catch {
@@ -53,7 +51,6 @@ export default function ForgotPasswordForm() {
             aria-invalid={Boolean(errors.email)}
             error={errors.email?.message}
           />
-          {requestError && <p role="alert" className="text-sm text-red-400">{requestError}</p>}
           <Button type="submit" loading={isSubmitting} className="w-full">
             {isSubmitting ? "Sending…" : "Send reset link"}
           </Button>

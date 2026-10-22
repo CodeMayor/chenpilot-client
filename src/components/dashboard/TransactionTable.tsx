@@ -1,24 +1,36 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
-import { StellarOperation, StellarTransaction } from '@/types';
-import { formatAddress, formatTokenAmount } from '@/utils/format';
+import React, { useContext, useRef, useState } from 'react';
+import { ReactReduxContext } from 'react-redux';
+import { StellarTransaction, StellarOperation, TransactionDirection } from '@/types';
+import {
+  formatAddress,
+  formatTokenAmount,
+  formatTransactionAmount as formatLocaleAmount,
+  formatTransactionDate,
+  formatTransactionFee,
+  ASSET_PRECISION,
+  FormatAmountOptions,
+} from '@/utils/format';
+import { useAppSelector } from '@/store';
+import { Language } from '@/lib/i18n/i18n';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import {
   ChevronLeft,
   ChevronRight,
   ArrowUpRight,
+  ArrowDownLeft,
+  ArrowLeftRight,
   ExternalLink,
   Check,
   AlertCircle,
   Loader2,
-  X,
-  Copy,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import TransactionDetailsDrawer, { getTransactionExplorerUrl } from './TransactionDetailsDrawer';
 
-interface TransactionTableProps {
+export interface TransactionTableProps {
   transactions: StellarTransaction[];
   isLoading: boolean;
   error: string | null;
@@ -27,6 +39,10 @@ interface TransactionTableProps {
   totalCount: number;
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
+  language?: Language;
+  locale?: string;
+  activeAccountAddress?: string;
+  accountAddress?: string;
 }
 
 const OPERATION_TYPE_LABELS: { [key: string]: string } = {
@@ -44,12 +60,153 @@ const OPERATION_TYPE_LABELS: { [key: string]: string } = {
   ext_soroban_op: 'Soroban Operation',
 };
 
-export function getExplorerTransactionUrl(
-  hash: string,
-  network = process.env.NEXT_PUBLIC_STELLAR_NETWORK,
+/**
+ * Normalizes an address string for safe comparison.
+ */
+function normalizeAddress(address?: string | null): string {
+  return address ? address.trim().toLowerCase() : '';
+}
+
+/**
+ * Classifies an individual operation's direction relative to the active account address.
+ *
+ * Rules:
+ * - 'self': both source and destination match the active address.
+ * - 'incoming': destination matches active address, and source does not.
+ * - 'outgoing': source matches active address, and destination is present and does not match active address.
+ * - 'unknown': missing active address, missing operation accounts, non-transfer ops, or neither matches.
+ */
+export function getOperationDirection(
+  operation?: Partial<StellarOperation> | null,
+  activeAccountAddress?: string | null,
+  txSourceAccount?: string | null
+): TransactionDirection {
+  const normActive = normalizeAddress(activeAccountAddress);
+  if (!normActive) {
+    return 'unknown';
+  }
+
+  if (!operation) {
+    return 'unknown';
+  }
+
+  // Derive source account: explicit `from`, then operation `source_account`, then fallback to txSourceAccount
+  const rawSource =
+    operation.from ||
+    operation.source_account ||
+    ((operation as Record<string, unknown>).funder as string | undefined) ||
+    txSourceAccount;
+
+  // Derive destination account: explicit `to`, or Horizon alternatives `account`, `into`
+  const rawDest =
+    operation.to ||
+    ((operation as Record<string, unknown>).account as string | undefined) ||
+    ((operation as Record<string, unknown>).into as string | undefined);
+
+  const normSource = normalizeAddress(rawSource);
+  const normDest = normalizeAddress(rawDest);
+
+  // Missing operation accounts: neither source nor destination present
+  if (!normSource && !normDest) {
+    return 'unknown';
+  }
+
+  // Self-transfer: Both source and destination match the active account
+  if (normSource === normActive && normDest === normActive) {
+    return 'self';
+  }
+
+  // Incoming: Funds received at active account
+  if (normDest === normActive && normSource !== normActive) {
+    return 'incoming';
+  }
+
+  // Outgoing: Funds sent from active account to a different destination
+  if (normSource === normActive && normDest && normDest !== normActive) {
+    return 'outgoing';
+  }
+
+  // Missing destination (e.g. non-transfer operation, change_trust, or incomplete record)
+  // or neither matches the active account
+  return 'unknown';
+}
+
+/**
+ * Classifies a transaction's direction relative to the active account address.
+ * Inspects transaction operations and resolves direction.
+ */
+export function getTransactionDirection(
+  tx: StellarTransaction,
+  activeAccountAddress?: string | null
+): TransactionDirection {
+  const normActive = normalizeAddress(activeAccountAddress);
+  if (!normActive) {
+    return tx.direction || 'unknown';
+  }
+
+  if (!tx.operations || tx.operations.length === 0) {
+    return 'unknown';
+  }
+
+  // Locate primary operation with transfer details (amount, to, or from)
+  const primaryOp =
+    tx.operations.find((op) => op.amount || op.to || op.from) || tx.operations[0];
+
+  return getOperationDirection(primaryOp, activeAccountAddress, tx.source_account);
+}
+
+/**
+ * Formats a transaction amount consistently with directional prefix and asset symbol.
+ * - incoming: "+<amount> <asset>"
+ * - outgoing: "-<amount> <asset>"
+ * - self: "<amount> <asset>"
+ * - unknown: "<amount> <asset>" (or "-" if amount is missing)
+ */
+export function formatTransactionAmount(
+  amount?: string | number | null,
+  direction: TransactionDirection = 'unknown',
+  asset: string = 'XLM',
+  decimals?: number,
+  options?: FormatAmountOptions
 ): string {
-  const explorerNetwork = network?.toLowerCase() === 'testnet' ? 'testnet' : 'public';
-  return `https://stellar.expert/explorer/${explorerNetwork}/tx/${encodeURIComponent(hash)}`;
+  if (amount === undefined || amount === null || amount === '') {
+    return '-';
+  }
+
+  if (options?.language || options?.locale) {
+    const rawFormatted = formatLocaleAmount(amount, {
+      ...options,
+      asset,
+      decimals:
+        decimals !== undefined
+          ? decimals
+          : asset
+          ? ASSET_PRECISION[asset.toUpperCase()]
+          : undefined,
+    });
+    if (rawFormatted === '-') return '-';
+
+    if (direction === 'incoming' && !rawFormatted.startsWith('+')) {
+      return `+${rawFormatted}`;
+    }
+    if (direction === 'outgoing' && !rawFormatted.startsWith('-')) {
+      return `-${rawFormatted}`;
+    }
+    return rawFormatted;
+  }
+
+  const tokenFormatted = formatTokenAmount(amount, decimals !== undefined ? decimals : 2);
+  const assetSuffix = asset ? ` ${asset}` : '';
+
+  if (direction === 'incoming') {
+    return `+${tokenFormatted}${assetSuffix}`;
+  }
+
+  if (direction === 'outgoing') {
+    return `-${tokenFormatted}${assetSuffix}`;
+  }
+
+  return `${tokenFormatted}${assetSuffix}`;
 }
 
 export default function TransactionTable({
@@ -61,49 +218,91 @@ export default function TransactionTable({
   totalCount,
   onPageChange,
   onPageSizeChange,
+  language,
+  locale,
+  activeAccountAddress,
+  accountAddress,
 }: TransactionTableProps) {
   const [selectedTransaction, setSelectedTransaction] = useState<StellarTransaction | null>(null);
-  const activeRowRef = useRef<HTMLTableRowElement | null>(null);
+  const selectedRowRef = useRef<HTMLTableRowElement | null>(null);
+  const reduxLanguage = useAppSelector((state) => state.ui?.language) as Language | undefined;
+  const currentLanguage = language || reduxLanguage || 'en';
+
+  const reduxContext = useContext(ReactReduxContext);
+  const storeState = reduxContext?.store?.getState?.() as
+    | {
+        auth?: { user?: { address?: string; publicKey?: string } };
+        account?: { status?: { address?: string; publicKey?: string } };
+      }
+    | undefined;
+
+  const resolvedActiveAddress =
+    activeAccountAddress ||
+    accountAddress ||
+    storeState?.auth?.user?.address ||
+    storeState?.auth?.user?.publicKey ||
+    storeState?.account?.status?.address ||
+    storeState?.account?.status?.publicKey;
+
   const totalPages = Math.ceil(totalCount / pageSize);
   const startIndex = (currentPage - 1) * pageSize + 1;
   const endIndex = Math.min(currentPage * pageSize, totalCount);
 
-  const handleCopyHash = (hash: string) => {
-    void navigator.clipboard.writeText(hash).then(() => toast.success('Transaction hash copied'));
+  const handleCopyHash = async (hash: string) => {
+    try {
+      await navigator.clipboard.writeText(hash);
+      toast.success('Transaction hash copied');
+    } catch {
+      toast.error('Could not copy transaction hash');
+    }
   };
 
-  const closeDetails = () => {
-    setSelectedTransaction(null);
-    window.requestAnimationFrame(() => activeRowRef.current?.focus());
-  };
-
-  useEffect(() => {
-    if (!selectedTransaction) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeDetails();
-    };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [selectedTransaction]);
-
-  const getOperationType = (operations: StellarOperation[]): string => {
+  const getOperationType = (operations?: StellarOperation[]): string => {
     if (!operations || operations.length === 0) return 'Unknown';
     const mainOp = operations[0];
     return OPERATION_TYPE_LABELS[mainOp.type] || mainOp.type;
   };
 
-  const getOperationDetails = (operations: StellarOperation[]): string | null => {
-    if (!operations || operations.length === 0) return null;
-    const mainOp = operations[0];
-    return mainOp.amount ? `${formatTokenAmount(mainOp.amount, 2)} ${mainOp.asset}` : null;
+  const getDirectionIcon = (direction: TransactionDirection, successful: boolean) => {
+    if (!successful) {
+      return <AlertCircle className="h-4 w-4 text-red-400" />;
+    }
+    switch (direction) {
+      case 'incoming':
+        return <ArrowDownLeft className="h-4 w-4 text-emerald-400" />;
+      case 'outgoing':
+        return <ArrowUpRight className="h-4 w-4 text-blue-400" />;
+      case 'self':
+        return <ArrowLeftRight className="h-4 w-4 text-purple-400" />;
+      case 'unknown':
+      default:
+        return <ArrowUpRight className="h-4 w-4 text-gray-400" />;
+    }
+  };
+
+  const getDirectionContainerClass = (direction: TransactionDirection, successful: boolean) => {
+    if (!successful) {
+      return 'bg-red-500/20';
+    }
+    switch (direction) {
+      case 'incoming':
+        return 'bg-emerald-500/20';
+      case 'outgoing':
+        return 'bg-blue-500/20';
+      case 'self':
+        return 'bg-purple-500/20';
+      case 'unknown':
+      default:
+        return 'bg-gray-800';
+    }
   };
 
   if (error) {
     return (
-      <Card>
-        <div className="flex items-center space-x-3 p-4 bg-red-500/10 rounded-lg border border-red-500/20">
-          <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0" />
-          <span className="text-sm text-red-300">{error}</span>
+      <Card className="p-6 bg-red-950/20 border-red-900/50">
+        <div className="flex items-center space-x-3">
+          <AlertCircle className="h-5 w-5 text-red-400" />
+          <span className="text-red-400">{error}</span>
         </div>
       </Card>
     );
@@ -111,10 +310,10 @@ export default function TransactionTable({
 
   if (isLoading && transactions.length === 0) {
     return (
-      <Card>
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 text-blue-400 animate-spin" />
-          <span className="ml-3 text-gray-300">Loading transactions...</span>
+      <Card className="p-12">
+        <div className="flex flex-col items-center justify-center space-y-3">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
+          <p className="text-gray-400">Loading transactions...</p>
         </div>
       </Card>
     );
@@ -122,27 +321,31 @@ export default function TransactionTable({
 
   if (transactions.length === 0) {
     return (
-      <Card>
-        <div className="text-center py-12">
-          <p className="text-gray-400 mb-2">No transactions found</p>
-          <p className="text-xs text-gray-500">
-            Your on-chain transaction history will appear here
-          </p>
+      <Card className="p-12">
+        <div className="text-center">
+          <p className="text-gray-400">No transactions found</p>
         </div>
       </Card>
     );
   }
 
   return (
-    <Card>
-      <div className="space-y-4">
-        {/* Transactions Table */}
+    <Card className="overflow-hidden">
+      <div className="p-6">
+        <h2 className="text-lg font-semibold text-white mb-4">
+          Transaction History
+        </h2>
+
+        {/* Transaction Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-800">
                 <th className="text-left py-3 px-4 font-semibold text-gray-300">
                   Type
+                </th>
+                <th className="text-left py-3 px-4 font-semibold text-gray-300">
+                  Direction
                 </th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-300">
                   Hash
@@ -165,173 +368,152 @@ export default function TransactionTable({
               </tr>
             </thead>
             <tbody>
-              {transactions.map((tx) => (
-                <tr
-                  key={tx.id}
-                  ref={(element) => {
-                    if (selectedTransaction?.id === tx.id) activeRowRef.current = element;
-                  }}
-                  tabIndex={0}
-                  aria-label={`View transaction details for ${getOperationType(tx.operations)}`}
-                  aria-haspopup="dialog"
-                  onClick={(event) => {
-                    activeRowRef.current = event.currentTarget;
-                    setSelectedTransaction(tx);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      activeRowRef.current = event.currentTarget;
+              {transactions.map((tx) => {
+                const direction = getTransactionDirection(tx, resolvedActiveAddress);
+                const primaryOp =
+                  tx.operations && tx.operations.length > 0 ? tx.operations[0] : null;
+                const formattedAmount = formatTransactionAmount(
+                  primaryOp?.amount,
+                  direction,
+                  primaryOp?.asset || 'XLM',
+                  undefined,
+                  { language: currentLanguage, locale }
+                );
+
+                return (
+                  <tr
+                    key={tx.id}
+                    ref={selectedTransaction?.id === tx.id ? selectedRowRef : undefined}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`View details for transaction ${formatAddress(tx.hash)}`}
+                    onClick={(event) => {
+                      selectedRowRef.current = event.currentTarget;
                       setSelectedTransaction(tx);
-                    }
-                  }}
-                  className="cursor-pointer border-b border-gray-800/50 hover:bg-gray-900/50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 transition-colors"
-                >
-                  <td className="py-3 px-4">
-                    <div className="flex items-center space-x-2">
-                      <div
-                        className={`p-2 rounded-full ${
-                          tx.successful
-                            ? 'bg-blue-500/20'
-                            : 'bg-red-500/20'
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        selectedRowRef.current = event.currentTarget;
+                        setSelectedTransaction(tx);
+                      }
+                    }}
+                    className="border-b border-gray-800/50 hover:bg-gray-900/50 transition-colors"
+                  >
+                    <td className="py-3 px-4">
+                      <div className="flex items-center space-x-2">
+                        <div
+                          className={`p-2 rounded-full ${getDirectionContainerClass(
+                            direction,
+                            tx.successful
+                          )}`}
+                        >
+                          {getDirectionIcon(direction, tx.successful)}
+                        </div>
+                        <div>
+                          <p className="font-medium text-white">
+                            {getOperationType(tx.operations)}
+                          </p>
+                          <p className="text-xs text-gray-400">
+                            {tx.operation_count}
+                            {tx.operation_count === 1 ? ' op' : ' ops'}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span
+                        data-testid={`tx-direction-${tx.id}`}
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize ${
+                          direction === 'incoming'
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            : direction === 'outgoing'
+                            ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+                            : direction === 'self'
+                            ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20'
+                            : 'bg-gray-800 text-gray-400 border border-gray-700'
                         }`}
                       >
-                        <ArrowUpRight
-                          className={`h-4 w-4 ${
-                            tx.successful
-                              ? 'text-blue-400'
-                              : 'text-red-400'
-                          }`}
-                        />
-                      </div>
-                      <div>
-                        <p className="font-medium text-white">
-                          {getOperationType(tx.operations)}
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          {tx.operation_count}
-                          {tx.operation_count === 1 ? ' op' : ' ops'}
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="py-3 px-4">
-                    <button
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleCopyHash(tx.hash);
-                      }}
-                      className="font-mono text-xs text-blue-400 hover:text-blue-300 truncate max-w-xs"
-                      title={tx.hash}
-                    >
-                      {formatAddress(tx.hash)}
-                    </button>
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className="text-gray-300">
-                      {getOperationDetails(tx.operations) || '-'}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className="text-gray-300">#{tx.ledger}</span>
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className="text-gray-300">
-                      {new Date(tx.created_at).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4">
-                    {tx.successful ? (
-                      <div className="flex items-center space-x-1">
-                        <Check className="h-4 w-4 text-green-400" />
-                        <span className="text-green-400 font-medium">Success</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center space-x-1">
-                        <AlertCircle className="h-4 w-4 text-red-400" />
-                        <span className="text-red-400 font-medium">Failed</span>
-                      </div>
-                    )}
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <a
-                      href={getExplorerTransactionUrl(tx.hash)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(event) => event.stopPropagation()}
-                      className="inline-flex items-center space-x-1 px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 transition-colors text-xs text-blue-400 hover:text-blue-300"
-                    >
-                      <span>View</span>
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </td>
-                </tr>
-              ))}
+                        {direction === 'self' ? 'Self-Transfer' : direction}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleCopyHash(tx.hash);
+                        }}
+                        onKeyDown={(event) => event.stopPropagation()}
+                        className="font-mono text-xs text-blue-400 hover:text-blue-300 truncate max-w-xs"
+                        type="button"
+                        title={tx.hash}
+                      >
+                        {formatAddress(tx.hash)}
+                      </button>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span
+                        data-testid={`tx-amount-${tx.id}`}
+                        className={`font-mono text-sm block ${
+                          direction === 'incoming'
+                            ? 'text-emerald-400 font-medium'
+                            : direction === 'outgoing'
+                            ? 'text-rose-400 font-medium'
+                            : direction === 'self'
+                            ? 'text-purple-300 font-medium'
+                            : 'text-gray-300'
+                        }`}
+                      >
+                        {formattedAmount}
+                      </span>
+                      {tx.fee_charged && (
+                        <span className="text-xs text-gray-500 block">
+                          Fee: {formatTransactionFee(tx.fee_charged, { language: currentLanguage, locale, asset: 'XLM' })}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className="text-gray-300">#{tx.ledger}</span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className="text-gray-300">
+                        {formatTransactionDate(tx.created_at, {
+                          language: currentLanguage,
+                          locale,
+                        })}
+                      </span>
+                    </td>
+                    <td className="py-3 px-4">
+                      {tx.successful ? (
+                        <div className="flex items-center space-x-1">
+                          <Check className="h-4 w-4 text-green-400" />
+                          <span className="text-green-400 font-medium">Success</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center space-x-1">
+                          <AlertCircle className="h-4 w-4 text-red-400" />
+                          <span className="text-red-400 font-medium">Failed</span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <a
+                        href={getTransactionExplorerUrl(tx.hash)}
+                        onClick={(event) => event.stopPropagation()}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center space-x-1 px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 transition-colors text-xs text-blue-400 hover:text-blue-300"
+                      >
+                        <span>View</span>
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
-
-        {selectedTransaction && (
-          <div className="fixed inset-0 z-50 flex justify-end bg-black/60" onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeDetails();
-          }}>
-            <section
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="transaction-details-title"
-              className="h-full w-full max-w-lg overflow-y-auto border-l border-gray-700 bg-gray-950 p-6 text-white shadow-2xl"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h2 id="transaction-details-title" className="text-xl font-semibold">Transaction details</h2>
-                  <p className="mt-1 break-all font-mono text-xs text-gray-400">{selectedTransaction.hash}</p>
-                </div>
-                <button type="button" onClick={closeDetails} aria-label="Close transaction details" className="rounded p-2 text-gray-400 hover:bg-gray-800 hover:text-white">
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-
-              <div className="mt-5 flex flex-wrap gap-2">
-                <Button type="button" variant="ghost" size="sm" onClick={() => handleCopyHash(selectedTransaction.hash)}>
-                  <Copy className="mr-2 h-4 w-4" /> Copy hash
-                </Button>
-                <a href={getExplorerTransactionUrl(selectedTransaction.hash)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-blue-300 hover:bg-gray-800">
-                  Open in Stellar Explorer <ExternalLink className="h-4 w-4" />
-                </a>
-              </div>
-
-              <dl className="mt-6 grid grid-cols-2 gap-4 rounded-lg border border-gray-800 bg-gray-900/50 p-4 text-sm">
-                <div><dt className="text-gray-400">Status</dt><dd className={selectedTransaction.successful ? 'text-green-400' : 'text-red-400'}>{selectedTransaction.successful ? 'Success' : 'Failed'}</dd></div>
-                <div><dt className="text-gray-400">Ledger</dt><dd>#{selectedTransaction.ledger}</dd></div>
-                <div><dt className="text-gray-400">Fee charged</dt><dd>{formatTokenAmount(selectedTransaction.fee_charged)} XLM</dd></div>
-                <div><dt className="text-gray-400">Operations</dt><dd>{selectedTransaction.operation_count}</dd></div>
-                <div className="col-span-2"><dt className="text-gray-400">Memo</dt><dd className="break-words">{selectedTransaction.memo || '—'}</dd></div>
-              </dl>
-
-              <h3 className="mt-7 text-lg font-medium">Operations</h3>
-              {selectedTransaction.operations?.length ? (
-                <ol className="mt-3 space-y-3">
-                  {selectedTransaction.operations.map((operation, index) => (
-                    <li key={operation.id || `${operation.type}-${index}`} className="rounded-lg border border-gray-800 bg-gray-900/50 p-4">
-                      <p className="font-medium">{OPERATION_TYPE_LABELS[operation.type] || operation.type}</p>
-                      {operation.amount && <p className="mt-1 text-sm text-gray-300">Amount: {formatTokenAmount(operation.amount)} {operation.asset || 'XLM'}</p>}
-                      {operation.from && <p className="mt-1 break-all text-xs text-gray-400">From: {operation.from}</p>}
-                      {operation.to && <p className="mt-1 break-all text-xs text-gray-400">To: {operation.to}</p>}
-                      {!operation.from && !operation.to && operation.source_account && <p className="mt-1 break-all text-xs text-gray-400">Source: {operation.source_account}</p>}
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="mt-3 rounded-lg border border-gray-800 p-4 text-sm text-gray-400">No operation details are available for this transaction.</p>
-              )}
-            </section>
-          </div>
-        )}
 
         {/* Pagination Controls */}
         <div className="flex items-center justify-between pt-4 border-t border-gray-800">
@@ -407,6 +589,13 @@ export default function TransactionTable({
           </div>
         </div>
       </div>
+      {selectedTransaction && (
+        <TransactionDetailsDrawer
+          transaction={selectedTransaction}
+          onClose={() => setSelectedTransaction(null)}
+          returnFocusRef={selectedRowRef}
+        />
+      )}
     </Card>
   );
 }

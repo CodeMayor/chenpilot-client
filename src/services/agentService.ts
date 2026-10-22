@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from "axios";
+import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import { logger } from "../utils/logger";
 import {
   AgentQueryRequest,
@@ -6,9 +6,9 @@ import {
   AgentStatus,
   AgentCapabilities,
   AgentHealthCheck,
-  AgentTool,
-} from "@/types/agent";
-import agentConfig from "@/config/agent";
+  AgentTool
+} from '@/types/agent';
+import agentConfig from '@/config/agent';
 
 /**
  * Direct client service for communicating with the AI Agent backend.
@@ -21,12 +21,12 @@ class AgentService {
 
   constructor() {
     this.baseURL = agentConfig.baseURL;
-
+    
     this.api = axios.create({
       baseURL: this.baseURL,
       timeout: agentConfig.timeout,
       headers: {
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
     });
 
@@ -34,30 +34,26 @@ class AgentService {
     if (agentConfig.enableLogging) {
       this.api.interceptors.request.use(
         (config) => {
-          logger.debug(
-            `[AgentService] Making request to: ${config.method?.toUpperCase()} ${config.url}`,
-          );
+          logger.debug(`[AgentService] Making request to: ${config.method?.toUpperCase()} ${config.url}`);
           return config;
         },
         (error) => {
-          console.error("[AgentService] Request error:", error);
+          console.error('[AgentService] Request error:', error);
           return Promise.reject(error);
-        },
+        }
       );
 
       // Response interceptor for error handling
       this.api.interceptors.response.use(
         (response) => {
-          logger.debug(
-            `[AgentService] Response received: ${response.status} ${response.config.url}`,
-          );
+          logger.debug(`[AgentService] Response received: ${response.status} ${response.config.url}`);
           return response;
         },
         (error) => {
-          console.error("[AgentService] Response error:", error);
+          console.error('[AgentService] Response error:', error);
           this.isConnected = false;
           return Promise.reject(error);
-        },
+        }
       );
     }
   }
@@ -74,46 +70,46 @@ class AgentService {
       // we'll try to make a simple request to test connectivity
       // We'll use a HEAD request to avoid authentication issues
       const response = await this.api.request({
-        method: "HEAD",
-        url: "/",
-        timeout: 5000,
+        method: 'HEAD',
+        url: '/',
+        timeout: 5000
       });
-
+      
       this.isConnected = true;
       this.lastHealthCheck = new Date();
       return {
-        status: "healthy",
+        status: 'healthy',
         timestamp: new Date().toISOString(),
         services: {
           agent: {
-            status: "up",
-            responseTime: 0,
-          },
+            status: 'up',
+            responseTime: 0
+          }
         },
         system: {
           memory: { used: 0, total: 0, percentage: 0 },
           cpu: { usage: 0 },
-          uptime: 0,
-        },
+          uptime: 0
+        }
       };
     } catch (error) {
       this.isConnected = false;
-      console.error("[AgentService] Health check failed:", error);
+      console.error('[AgentService] Health check failed:', error);
       // Don't throw error, return unhealthy status instead
       return {
-        status: "unhealthy",
+        status: 'unhealthy',
         timestamp: new Date().toISOString(),
         services: {
           agent: {
-            status: "down",
-            responseTime: 0,
-          },
+            status: 'down',
+            responseTime: 0
+          }
         },
         system: {
           memory: { used: 0, total: 0, percentage: 0 },
           cpu: { usage: 0 },
-          uptime: 0,
-        },
+          uptime: 0
+        }
       };
     }
   }
@@ -128,37 +124,17 @@ class AgentService {
     // we'll return a basic status based on connectivity
     return {
       isOnline: this.isConnected,
-      version: "1.0.0",
+      version: '1.0.0',
       uptime: 0,
       lastActivity: new Date().toISOString(),
       activeConnections: 1,
       services: {
-        soroswap: {
-          isActive: true,
-          isHealthy: true,
-          lastCheck: new Date().toISOString(),
-        },
-        blend: {
-          isActive: true,
-          isHealthy: true,
-          lastCheck: new Date().toISOString(),
-        },
-        aquarius: {
-          isActive: true,
-          isHealthy: true,
-          lastCheck: new Date().toISOString(),
-        },
-        phoenix: {
-          isActive: true,
-          isHealthy: true,
-          lastCheck: new Date().toISOString(),
-        },
-        database: {
-          isActive: true,
-          isHealthy: true,
-          lastCheck: new Date().toISOString(),
-        },
-      },
+        soroswap: { isActive: true, isHealthy: true, lastCheck: new Date().toISOString() },
+        blend: { isActive: true, isHealthy: true, lastCheck: new Date().toISOString() },
+        aquarius: { isActive: true, isHealthy: true, lastCheck: new Date().toISOString() },
+        phoenix: { isActive: true, isHealthy: true, lastCheck: new Date().toISOString() },
+        database: { isActive: true, isHealthy: true, lastCheck: new Date().toISOString() }
+      }
     };
   }
 
@@ -172,31 +148,14 @@ class AgentService {
     // we'll return the capabilities based on the intent agent
     return {
       supportedActions: [
-        "transfer_xlm",
-        "swap",
-        "lend",
-        "borrow",
-        "withdraw",
-        "repay",
-        "check_balance",
-        "get_apy",
-        "health_check",
-        "liquidate",
-        "claim_rewards",
-        "add_collateral",
-        "remove_collateral",
-        "deposit_vault",
-        "withdraw_vault",
-        "get_vaults",
-        "get_vault_positions",
-        "harvest_vault",
-        "get_strategies",
-        "swap_stellar_dex",
-        "add_liquidity",
-        "remove_liquidity",
+        'transfer_xlm', 'swap', 'lend', 'borrow', 'withdraw', 'repay', 'check_balance', 'get_apy',
+        'health_check', 'liquidate', 'claim_rewards', 'add_collateral',
+        'remove_collateral', 'deposit_vault', 'withdraw_vault', 'get_vaults',
+        'get_vault_positions', 'harvest_vault', 'get_strategies', 'swap_stellar_dex',
+        'add_liquidity', 'remove_liquidity'
       ],
-      supportedAssets: ["XLM", "USDC", "USDT", "BTC", "ETH", "AQUA"],
-      supportedProtocols: ["Soroswap", "Blend", "Aquarius", "Phoenix"],
+      supportedAssets: ['XLM', 'USDC', 'USDT', 'BTC', 'ETH', 'AQUA'],
+      supportedProtocols: ['Soroswap', 'Blend', 'Aquarius', 'Phoenix'],
       features: {
         defi: true,
         crossChain: true,
@@ -205,13 +164,13 @@ class AgentService {
         yieldFarming: true,
         lending: true,
         borrowing: true,
-        swapping: true,
+        swapping: true
       },
       limits: {
         maxQueryLength: 1000,
         maxConcurrentQueries: 10,
-        rateLimitPerMinute: 60,
-      },
+        rateLimitPerMinute: 60
+      }
     };
   }
 
@@ -225,7 +184,7 @@ class AgentService {
    * @example
    * ```ts
    * import { agentService } from '@/services/agentService';
-   *
+   * 
    * const response = await agentService.queryAgent({ query: 'What is my current XLM balance?' });
    * if (response.result.success) {
    *   console.log('Response:', response.result.data);
@@ -234,62 +193,65 @@ class AgentService {
    * }
    * ```
    */
-  async queryAgent(request: AgentQueryRequest): Promise<AgentQueryResponse> {
+  async queryAgent(request: AgentQueryRequest, options?: { signal?: AbortSignal }): Promise<AgentQueryResponse> {
     try {
-      logger.debug("[AgentService] Sending query:", request.query);
-
-      const response = await this.api.post("/query", request);
-
-      logger.debug("[AgentService] Query response:", response.data);
-
+      logger.debug('[AgentService] Sending query:', request.query);
+      
+      const response = await this.api.post('/query', request, { signal: options?.signal });
+      
+      logger.debug('[AgentService] Query response:', response.data);
+      
       // The experimental backend returns { result: ... } format
       // Ensure we return the proper AgentQueryResponse format
       if (response.data && response.data.result) {
         return {
-          result: response.data.result,
+          result: response.data.result
         };
       }
-
+      
       // Fallback if response format is unexpected
       return {
         result: {
           success: true,
-          data: response.data || "Query processed successfully",
-        },
+          data: response.data || 'Query processed successfully',
+          error: null
+        }
       };
     } catch (error: unknown) {
-      console.error("[AgentService] Query failed:", error);
+      const axiosError = error as {
+        code?: string;
+        name?: string;
+        message?: string;
+        response?: { data?: { message?: string } };
+      };
+      if (
+        axiosError.code === 'ERR_CANCELED' ||
+        axiosError.name === 'CanceledError' ||
+        axiosError.name === 'AbortError'
+      ) {
+        throw error;
+      }
+      console.error('[AgentService] Query failed:', error);
 
       // Convert technical errors to user-friendly messages
-      let friendlyMessage =
-        "Agent service is currently unavailable. Please try again later.";
-      const axiosError = error as {
-        response?: { data?: { message?: string } };
-        message?: string;
-      };
-      const errorMsg =
-        axiosError.response?.data?.message ||
-        axiosError.message ||
-        "Unknown error";
-
-      if (errorMsg.includes("invalid query")) {
-        friendlyMessage =
-          "I didn't understand that. Could you please rephrase your question?";
-      } else if (errorMsg.includes("timeout")) {
-        friendlyMessage =
-          "The request is taking longer than expected. Please try again.";
-      } else if (errorMsg.includes("network")) {
-        friendlyMessage =
-          "I'm having trouble connecting. Please check your internet connection and try again.";
+      let friendlyMessage = 'Agent service is currently unavailable. Please try again later.';
+      const errorMsg = axiosError.response?.data?.message || axiosError.message || 'Unknown error';
+      
+      if (errorMsg.includes('invalid query')) {
+        friendlyMessage = "I didn't understand that. Could you please rephrase your question?";
+      } else if (errorMsg.includes('timeout')) {
+        friendlyMessage = "The request is taking longer than expected. Please try again.";
+      } else if (errorMsg.includes('network')) {
+        friendlyMessage = "I'm having trouble connecting. Please check your internet connection and try again.";
       }
-
+      
       // Return a structured error response
       return {
         result: {
           success: false,
           data: friendlyMessage,
-          error: errorMsg,
-        },
+          error: errorMsg
+        }
       };
     }
   }
@@ -306,7 +268,7 @@ class AgentService {
       const response = await this.api.get<string[]>(`/memory/${userId}`);
       return response.data;
     } catch (error) {
-      console.error("[AgentService] Failed to get memory:", error);
+      console.error('[AgentService] Failed to get memory:', error);
       return [];
     }
   }
@@ -322,8 +284,8 @@ class AgentService {
     try {
       await this.api.delete(`/memory/${userId}`);
     } catch (error) {
-      console.error("[AgentService] Failed to clear memory:", error);
-      throw new Error("Failed to clear agent memory");
+      console.error('[AgentService] Failed to clear memory:', error);
+      throw new Error('Failed to clear agent memory');
     }
   }
 
@@ -335,10 +297,10 @@ class AgentService {
    */
   async getTools(): Promise<AgentTool[]> {
     try {
-      const response = await this.api.get<AgentTool[]>("/tools");
+      const response = await this.api.get<AgentTool[]>('/tools');
       return response.data;
     } catch (error) {
-      console.error("[AgentService] Failed to get tools:", error);
+      console.error('[AgentService] Failed to get tools:', error);
       return [];
     }
   }
@@ -351,21 +313,12 @@ class AgentService {
    * @returns Promise resolving to tool execution response output.
    * @throws {Error} Throws Error if tool execution fails.
    */
-  async executeTool(
-    toolName: string,
-    params: Record<string, unknown>,
-  ): Promise<unknown> {
+  async executeTool(toolName: string, params: Record<string, unknown>): Promise<unknown> {
     try {
-      const response = await this.api.post(
-        `/tools/${toolName}/execute`,
-        params,
-      );
+      const response = await this.api.post(`/tools/${toolName}/execute`, params);
       return response.data;
     } catch (error) {
-      console.error(
-        `[AgentService] Failed to execute tool ${toolName}:`,
-        error,
-      );
+      console.error(`[AgentService] Failed to execute tool ${toolName}:`, error);
       throw new Error(`Failed to execute tool: ${toolName}`);
     }
   }
@@ -397,11 +350,9 @@ class AgentService {
   async initialize(): Promise<void> {
     try {
       await this.healthCheck();
-      logger.debug("[AgentService] Successfully initialized");
+      logger.debug('[AgentService] Successfully initialized');
     } catch (error) {
-      console.warn(
-        "[AgentService] Failed to initialize, will retry on first use",
-      );
+      console.warn('[AgentService] Failed to initialize, will retry on first use');
     }
   }
 
