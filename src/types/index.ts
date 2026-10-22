@@ -155,9 +155,29 @@ export interface WalletBalance {
 // Stellar Transaction Types
 export type TransactionDirection = 'incoming' | 'outgoing' | 'self' | 'unknown';
 
+/**
+ * Operation types the transaction UI has a curated label for. Horizon can emit
+ * types outside this list, so `StellarOperation.type` stays a plain string and
+ * unlisted values render with their raw type.
+ */
+export type StellarOperationType =
+  | 'payment'
+  | 'create_account'
+  | 'account_merge'
+  | 'manage_offer'
+  | 'create_passive_offer'
+  | 'set_options'
+  | 'change_trust'
+  | 'allow_trust'
+  | 'account_created'
+  | 'invoke_host_function'
+  | 'bump_sequence'
+  | 'ext_soroban_op';
+
 export interface StellarOperation {
   id: string;
-  type: string; // e.g., 'payment', 'create_account', 'trust', etc.
+  /** Raw Horizon operation type, usually one of `StellarOperationType`. */
+  type: string;
   amount?: string;
   asset?: string;
   from?: string;

@@ -2,7 +2,12 @@
 
 import React, { useContext } from 'react';
 import { ReactReduxContext } from 'react-redux';
-import { StellarTransaction, StellarOperation, TransactionDirection } from '@/types';
+import {
+  StellarTransaction,
+  StellarOperation,
+  StellarOperationType,
+  TransactionDirection,
+} from '@/types';
 import {
   formatAddress,
   formatTokenAmount,
@@ -44,7 +49,7 @@ export interface TransactionTableProps {
   accountAddress?: string;
 }
 
-const OPERATION_TYPE_LABELS: { [key: string]: string } = {
+const OPERATION_TYPE_LABELS: Record<StellarOperationType, string> = {
   payment: 'Payment',
   create_account: 'Create Account',
   account_merge: 'Account Merge',
@@ -251,9 +256,9 @@ export default function TransactionTable({
   };
 
   const getOperationType = (operations?: StellarOperation[]): string => {
-    if (!operations || operations.length === 0) return 'Unknown';
-    const mainOp = operations[0];
-    return OPERATION_TYPE_LABELS[mainOp.type] || mainOp.type;
+    const mainOp = operations?.[0];
+    if (!mainOp?.type) return 'Unknown';
+    return OPERATION_TYPE_LABELS[mainOp.type as StellarOperationType] ?? mainOp.type;
   };
 
   const getDirectionIcon = (direction: TransactionDirection, successful: boolean) => {
