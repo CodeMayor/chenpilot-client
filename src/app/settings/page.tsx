@@ -10,18 +10,19 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import apiService from "@/services/api";
-import { t, LANGUAGES } from "@/lib/i18n/i18n";
+import { t } from "@/lib/i18n/i18n";
+import { LANGUAGES } from "@/lib/i18n/translations";
+import SignOutOtherDevices from "@/components/auth/SignOutOtherDevices";
 
 export default function SettingsPage() {
   const dispatch = useAppDispatch();
   const { isAuthenticated, user, isLoading } = useAppSelector(
     (state) => state.auth,
   );
-  const { theme, language } = useAppSelector((state) => state.ui) || {
-    mode: "dark",
+  const { mode, language } = useAppSelector((state) => state.ui) || {
+    mode: "dark" as const,
     language: "en",
   };
-
   useEffect(() => {
     if (isAuthenticated) {
       dispatch(fetchProfile());
@@ -137,13 +138,13 @@ export default function SettingsPage() {
                     </label>
                     <div className="flex space-x-4">
                       <Button
-                        variant={theme.mode === "light" ? "primary" : "ghost"}
+                        variant={mode === "light" ? "primary" : "ghost"}
                         size="sm"
                       >
                         {t(language, "settings.light")}
                       </Button>
                       <Button
-                        variant={theme.mode === "dark" ? "primary" : "ghost"}
+                        variant={mode === "dark" ? "primary" : "ghost"}
                         size="sm"
                       >
                         {t(language, "settings.dark")}
@@ -230,6 +231,7 @@ export default function SettingsPage() {
                     <Button variant="ghost" className="w-full justify-start">
                       Change Password
                     </Button>
+                    <SignOutOtherDevices />
                     <Button
                       variant="ghost"
                       className="w-full justify-start text-red-600 hover:text-red-700"
@@ -239,6 +241,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </Card>
+
             </div>
           </div>
         </div>

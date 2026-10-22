@@ -6,49 +6,7 @@ import {
   AccountState,
 } from "@/types";
 import { horizonFetch } from "@/utils/horizonFetch";
-import { createSlice, PayloadAction } from '@reduxjs/toolkit';
-
-export interface TransactionFilters {
-  type: string;        // e.g., 'payment', 'swap', 'deposit'
-  asset: string;       // e.g., 'XLM', 'USDC'
-  direction: string;   // 'sent' | 'received' | 'all'
-  startDate: string;   // ISO string or YYYY-MM-DD
-  endDate: string;     // ISO string or YYYY-MM-DD
-}
-
-interface AccountState {
-  transactions: any[];
-  filters: TransactionFilters;
-  // ... existing state properties
-}
-
-const initialFilters: TransactionFilters = {
-  type: 'all',
-  asset: 'all',
-  direction: 'all',
-  startDate: '',
-  endDate: '',
-};
-
-const accountSlice = createSlice({
-  name: 'account',
-  initialState: {
-    transactions: [],
-    filters: initialFilters,
-  } as AccountState,
-  reducers: {
-    setTransactionFilter(
-      state,
-      action: PayloadAction<Partial<TransactionFilters>>
-    ) {
-      state.filters = { ...state.filters, ...action.payload };
-    },
-    clearTransactionFilters(state) {
-      state.filters = initialFilters;
-    },
-    // ... existing reducers
-  },
-});
+import apiService from "@/services/api";
 
 type NetworkHealthStatus = "healthy" | "degraded" | "down" | "unknown";
 type AccountSyncState = "synced" | "syncing" | "desynced";
@@ -58,6 +16,7 @@ const initialState: AccountState = {
   balance: null,
   transactions: {
     transactions: [],
+    total: 0,
     isLoading: false,
     error: null,
   },
@@ -94,13 +53,14 @@ export const getAccountStatus = createAsyncThunk(
   },
 );
 
-export const getBalance = createAsyncThunk(
-  "account/getBalance",
-  async () => {
-    // Mock balance
-    return "1000000000000000000"; // 1 ETH in wei
-  },
-);
+export const getBalance = createAsyncThunk("account/getBalance", async () => {
+  return {
+    hasBalance: true,
+    balance: "1000",
+    required: "1",
+    nativeBalance: "1000",
+  } satisfies WalletBalance;
+});
 
 export const getStellarNetworkStatus = createAsyncThunk(
   "account/getStellarNetworkStatus",
@@ -143,27 +103,22 @@ export const getStellarNetworkStatus = createAsyncThunk(
       };
     } catch (error: unknown) {
       return rejectWithValue(
-        (error as { message?: string }).message || "Failed to fetch Stellar network status",
+        (error as { message?: string }).message ||
+          "Failed to fetch Stellar network status",
       );
     }
   },
 );
 
-export const deployAccount = createAsyncThunk(
-  "account/deploy",
-  async () => {
-    // Mock deploy account - always succeed
-    return { success: true, transactionHash: "0xmockdeployhash" };
-  },
-);
+export const deployAccount = createAsyncThunk("account/deploy", async () => {
+  // Mock deploy account - always succeed
+  return { success: true, transactionHash: "0xmockdeployhash" };
+});
 
-export const fundAccount = createAsyncThunk(
-  "account/fund",
-  async () => {
-    // Mock fund account - always succeed
-    return { success: true, transactionHash: "0xmockfundhash" };
-  },
-);
+export const fundAccount = createAsyncThunk("account/fund", async () => {
+  // Mock fund account - always succeed
+  return { success: true, transactionHash: "0xmockfundhash" };
+});
 
 export const getAutoFundingStats = createAsyncThunk(
   "account/getAutoFundingStats",
@@ -199,7 +154,9 @@ export const getTransactionHistory = createAsyncThunk(
           operation_count: record.operation_count,
           successful: record.successful,
           operations:
-            (record._embedded as { records?: Record<string, unknown>[] })?.records?.map((op: Record<string, unknown>) => ({
+            (
+              record._embedded as { records?: Record<string, unknown>[] }
+            )?.records?.map((op: Record<string, unknown>) => ({
               id: op.id,
               type: op.type,
               amount: op.amount,
@@ -216,7 +173,8 @@ export const getTransactionHistory = createAsyncThunk(
       return transactions;
     } catch (error: unknown) {
       return rejectWithValue(
-        (error as { message?: string }).message || "Failed to fetch transaction history",
+        (error as { message?: string }).message ||
+          "Failed to fetch transaction history",
       );
     }
   },
@@ -225,13 +183,23 @@ export const getTransactionHistory = createAsyncThunk(
 export const getAccountTransactions = createAsyncThunk(
   "account/getAccountTransactions",
   async (
-    { userId, page = 1, limit = 10 }: { userId: string; page?: number; limit?: number },
-    { rejectWithValue }
+    {
+      userId,
+      page = 1,
+      limit = 10,
+    }: { userId: string; page?: number; limit?: number },
+    { rejectWithValue },
   ) => {
     try {
-      const response = await apiService.getAccountTransactions(userId, page, limit);
+      const response = await apiService.getAccountTransactions(
+        userId,
+        page,
+        limit,
+      );
       if (!response.success) {
-        return rejectWithValue(response.message || "Failed to fetch transactions");
+        return rejectWithValue(
+          response.message || "Failed to fetch transactions",
+        );
       }
       return response.data;
     } catch (error: any) {
@@ -241,7 +209,6 @@ export const getAccountTransactions = createAsyncThunk(
     }
   },
 );
-
 
 const accountSlice = createSlice({
   name: "account",
@@ -410,6 +377,7 @@ const accountSlice = createSlice({
       .addCase(getTransactionHistory.fulfilled, (state, action) => {
         state.transactions.isLoading = false;
         state.transactions.transactions = action.payload;
+        state.transactions.total = action.payload.length;
         state.transactions.error = null;
       })
       .addCase(getTransactionHistory.rejected, (state, action) => {
@@ -424,6 +392,7 @@ const accountSlice = createSlice({
       .addCase(getAccountTransactions.fulfilled, (state, action) => {
         state.transactions.isLoading = false;
         state.transactions.transactions = action.payload.transactions;
+        state.transactions.total = action.payload.total;
         state.transactions.error = null;
       })
       .addCase(getAccountTransactions.rejected, (state, action) => {

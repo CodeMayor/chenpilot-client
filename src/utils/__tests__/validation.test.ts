@@ -6,13 +6,20 @@ import {
   stellarAddressSchema,
   tokenAmountSchema,
   createContactSchema,
+  resetPasswordSchema,
 } from "../validation";
 
 // #141 — table-driven tests for validation schemas.
 
 describe("emailSchema", () => {
   const valid = ["user@example.com", "a.b@c.d.com", "x@y.io"];
-  const invalid = ["", "no-at-sign", "no-domain@", "@no-local.com", "two@@at.com"];
+  const invalid = [
+    "",
+    "no-at-sign",
+    "no-domain@",
+    "@no-local.com",
+    "two@@at.com",
+  ];
   for (const e of valid) {
     it(`accepts "${e}"`, () => {
       expect(emailSchema.safeParse(e).success).toBe(true);
@@ -25,7 +32,9 @@ describe("emailSchema", () => {
     });
   }
   it("reports 'Email is required' on empty", () => {
-    expect(emailSchema.safeParse("").error?.issues[0]?.message).toBe("Email is required");
+    expect(emailSchema.safeParse("").error?.issues[0]?.message).toBe(
+      "Email is required",
+    );
   });
 });
 
@@ -53,6 +62,17 @@ describe("passwordSchema", () => {
   });
 });
 
+describe("resetPasswordSchema", () => {
+  it("rejects weak passwords", () => {
+    expect(
+      resetPasswordSchema.safeParse({
+        password: "weak",
+        confirmPassword: "weak",
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe("nameSchema", () => {
   it("rejects empty", () => {
     expect(nameSchema.safeParse("").success).toBe(false);
@@ -69,7 +89,7 @@ describe("nameSchema", () => {
 });
 
 describe("stellarAddressSchema", () => {
-  const validAddr = "GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789AB";
+  const validAddr = `G${"A".repeat(55)}`;
   it("accepts a valid G... 56-char address", () => {
     expect(stellarAddressSchema.safeParse(validAddr).success).toBe(true);
   });
@@ -77,13 +97,17 @@ describe("stellarAddressSchema", () => {
     expect(stellarAddressSchema.safeParse("").success).toBe(false);
   });
   it("rejects lowercase g prefix", () => {
-    expect(stellarAddressSchema.safeParse("g" + validAddr.slice(1)).success).toBe(false);
+    expect(
+      stellarAddressSchema.safeParse("g" + validAddr.slice(1)).success,
+    ).toBe(false);
   });
   it("rejects too-short string", () => {
     expect(stellarAddressSchema.safeParse("GABC").success).toBe(false);
   });
   it("rejects address with special chars", () => {
-    expect(stellarAddressSchema.safeParse("G" + "!" + "A".repeat(54)).success).toBe(false);
+    expect(
+      stellarAddressSchema.safeParse("G" + "!" + "A".repeat(54)).success,
+    ).toBe(false);
   });
 });
 
@@ -111,7 +135,7 @@ describe("tokenAmountSchema", () => {
 describe("createContactSchema", () => {
   const valid = {
     name: "Alice",
-    address: "GABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789AB",
+    address: `G${"A".repeat(55)}`,
     tokenType: "XLM" as const,
   };
   it("accepts a valid contact", () => {

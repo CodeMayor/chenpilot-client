@@ -1,10 +1,33 @@
-import apiService from './api';
+import apiService from "./api";
 
 /**
  * Service for handling authentication-related tasks beyond basic API calls,
  * such as state persistence in local browser storage and session destruction.
  */
 class AuthService {
+  requestPasswordReset(email: string) {
+    return apiService.forgotPassword(email);
+  }
+
+  resetPassword(token: string, password: string) {
+    return apiService.resetPassword(token, password);
+  }
+
+  async signOutAllOtherDevices(): Promise<{ currentSessionRevoked: boolean }> {
+    const result = await apiService.signOutAllOtherDevices();
+    if (result.currentSessionRevoked) {
+      apiService.clearToken();
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("auth_token");
+        localStorage.removeItem("user_data");
+        localStorage.removeItem("session_expiration");
+        localStorage.removeItem("refresh_token");
+        sessionStorage.clear();
+      }
+    }
+    return result;
+  }
+
   /**
    * Performs a logout by invalidating the session on the backend and
    * clearing all local authentication state.
@@ -15,7 +38,7 @@ class AuthService {
    * @example
    * ```ts
    * import { authService } from '@/services/auth.service';
-   * 
+   *
    * await authService.logout();
    * console.log('User logged out, isAuthenticated:', authService.isAuthenticated()); // false
    * ```
@@ -25,7 +48,7 @@ class AuthService {
       // Call the API service to perform the backend logout
       await apiService.logout();
     } catch (error) {
-      console.error('AuthService.logout failed:', error);
+      console.error("AuthService.logout failed:", error);
       // We don't throw here because we want the frontend to proceed
       // with local cleanup regardless of server success.
     }
@@ -38,8 +61,8 @@ class AuthService {
    * @returns Boolean `true` if an auth token is stored in localStorage, `false` otherwise.
    */
   isAuthenticated(): boolean {
-    if (typeof window === 'undefined') return false;
-    return !!localStorage.getItem('auth_token');
+    if (typeof window === "undefined") return false;
+    return !!localStorage.getItem("auth_token");
   }
 
   /**
@@ -49,8 +72,8 @@ class AuthService {
    * @returns JWT token string if found, or `null`.
    */
   getAccessToken(): string | null {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem('auth_token');
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem("auth_token");
   }
 
   /**
@@ -61,8 +84,8 @@ class AuthService {
    * @returns Parsed user object of type T or `null`.
    */
   getUserData<T = any>(): T | null {
-    if (typeof window === 'undefined') return null;
-    const data = localStorage.getItem('user_data');
+    if (typeof window === "undefined") return null;
+    const data = localStorage.getItem("user_data");
     return data ? JSON.parse(data) : null;
   }
 }

@@ -4,10 +4,13 @@ import React, { useState } from "react";
 import { logger } from "../../utils/logger";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChatMessage } from "@/types";
-import { Copy, Check } from "lucide-react";
+import { ChatMessage, MessageFeedback } from "@/types";
+import { Copy, Check, MessageSquare, ThumbsDown, ThumbsUp } from "lucide-react";
 import { CodeBlock } from "./CodeBlock";
 import ExecutionTrace from "./ExecutionTrace";
+import { useAppDispatch, useAppSelector } from "@/store";
+import { setMessageFeedback } from "@/store/slices/chatSlice";
+import { submitFeedback } from "@/services/feedbackService";
 
 interface AgentMessageProps {
   message: ChatMessage;
@@ -17,6 +20,42 @@ interface AgentMessageProps {
 
 export default function AgentMessage({ message, onCopy, onReply }: AgentMessageProps) {
   const [copied, setCopied] = useState(false);
+  const [showNegativeFeedbackPrompt, setShowNegativeFeedbackPrompt] = useState(false);
+  const [feedbackComment, setFeedbackComment] = useState("");
+  const dispatch = useAppDispatch();
+  const currentFeedback = useAppSelector((state) =>
+    state.chat.messages.find((item) => item.id === message.id)?.metadata?.feedback ?? message.metadata?.feedback,
+  );
+  const selectedRating = currentFeedback?.rating;
+
+  const saveFeedback = (feedback: MessageFeedback | null) => {
+    dispatch(setMessageFeedback({ messageId: message.id, feedback }));
+    void submitFeedback(message.id, feedback);
+  };
+
+  const rateAnswer = (rating: MessageFeedback["rating"]) => {
+    if (selectedRating === rating) {
+      setShowNegativeFeedbackPrompt(false);
+      saveFeedback(null);
+      return;
+    }
+    if (rating === "down") {
+      setFeedbackComment("");
+      setShowNegativeFeedbackPrompt(true);
+      return;
+    }
+    saveFeedback({ rating, submittedAt: new Date().toISOString() });
+  };
+
+  const submitNegativeFeedback = () => {
+    saveFeedback({
+      rating: "down",
+      ...(feedbackComment.trim() ? { comment: feedbackComment.trim() } : {}),
+      submittedAt: new Date().toISOString(),
+    });
+    setShowNegativeFeedbackPrompt(false);
+    setFeedbackComment("");
+  };
 
   // Handle both string and object content
   const renderContent = () => {
@@ -331,7 +370,47 @@ export default function AgentMessage({ message, onCopy, onReply }: AgentMessageP
         <ExecutionTrace trace={message.metadata.executionTrace} />
       )}
 
-      <button
+      {message.type === "agent" && (
+        <div className="mt-3 flex items-center gap-2" aria-label="Rate this answer">
+          <button
+            type="button"
+            onClick={() => rateAnswer("up")}
+            aria-label="Thumbs up"
+            aria-pressed={selectedRating === "up"}
+            className={`rounded-md p-2 transition-colors ${selectedRating === "up" ? "bg-green-500/20 text-green-300" : "text-gray-400 hover:bg-white/10 hover:text-white"}`}
+          >
+            <ThumbsUp className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => rateAnswer("down")}
+            aria-label="Thumbs down"
+            aria-pressed={selectedRating === "down"}
+            className={`rounded-md p-2 transition-colors ${selectedRating === "down" ? "bg-red-500/20 text-red-300" : "text-gray-400 hover:bg-white/10 hover:text-white"}`}
+          >
+            <ThumbsDown className="h-4 w-4" />
+          </button>
+          {showNegativeFeedbackPrompt && (
+            <div role="dialog" aria-label="Tell us what was wrong" className="ml-2 w-full max-w-sm rounded-lg border border-white/10 bg-gray-900 p-3">
+              <label htmlFor={`feedback-${message.id}`} className="mb-2 block text-sm text-gray-200">What could be improved? (optional)</label>
+              <textarea
+                id={`feedback-${message.id}`}
+                value={feedbackComment}
+                onChange={(event) => setFeedbackComment(event.target.value)}
+                maxLength={280}
+                rows={2}
+                className="w-full resize-y rounded border border-gray-700 bg-gray-950 p-2 text-sm text-white"
+              />
+              <div className="mt-2 flex justify-end gap-2">
+                <button type="button" onClick={() => setShowNegativeFeedbackPrompt(false)} className="rounded px-3 py-1 text-sm text-gray-300 hover:bg-white/10">Cancel</button>
+                <button type="button" onClick={submitNegativeFeedback} className="rounded bg-blue-600 px-3 py-1 text-sm text-white hover:bg-blue-500">Submit feedback</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {onReply && message.replyCount !== undefined && message.replyCount > 0 && <button
         onClick={() => onReply(message.id)}
         className="mt-1.5 flex items-center space-x-1 text-xs text-purple-400 hover:text-purple-300 transition-colors"
         aria-label={`View ${message.replyCount} ${message.replyCount === 1 ? 'reply' : 'replies'}`}
@@ -340,8 +419,7 @@ export default function AgentMessage({ message, onCopy, onReply }: AgentMessageP
         <span>
           {message.replyCount} {message.replyCount === 1 ? 'reply' : 'replies'}
         </span>
-      </button>
-    )}
+      </button>}
     </div>
   );
 }

@@ -38,7 +38,7 @@ export default function ContactsPage() {
   const [formData, setFormData] = useState<CreateContactRequest>({
     name: '',
     address: '',
-    tokenType: 'STRK',
+    tokenType: 'XLM',
   });
 
   useEffect(() => {
@@ -61,7 +61,7 @@ export default function ContactsPage() {
       await dispatch(createContact(formData)).unwrap();
       toast.success('Contact created successfully!');
       setIsCreateModalOpen(false);
-      setFormData({ name: '', address: '', tokenType: 'STRK' });
+      setFormData({ name: '', address: '', tokenType: 'XLM' });
     } catch (error: any) {
       const errorMessage = error instanceof Error ? error.message : String(error || 'Failed to create contact');
       toast.error(errorMessage);
@@ -80,7 +80,7 @@ export default function ContactsPage() {
       toast.success('Contact updated successfully!');
       setIsEditModalOpen(false);
       setEditingContact(null);
-      setFormData({ name: '', address: '', tokenType: 'STRK' });
+      setFormData({ name: '', address: '', tokenType: 'XLM' });
     } catch (error: any) {
       const errorMessage = error instanceof Error ? error.message : String(error || 'Failed to update contact');
       toast.error(errorMessage);

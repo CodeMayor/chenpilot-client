@@ -7,7 +7,7 @@ export interface User {
   publicKey: string;
   isDeployed: boolean;
   isFunded: boolean;
-  tokenType: "XLM";
+  tokenType: TokenType;
   authProvider: "email" | "google";
   isEmailVerified: boolean;
   createdAt: string;
@@ -87,24 +87,24 @@ export interface Contact {
   id: string;
   name: string;
   address: string;
-  tokenType: "XLM" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
+  tokenType: TokenType;
   createdAt: string;
   updatedAt: string;
-  avatar?: string;
   isFavorite?: boolean;
+  avatar?: string;
   lastUsed?: string;
-}
-
-export interface CreateContactRequest {
-  name: string;
-  address: string;
-  tokenType: "XLM" | "USDC" | "USDT" | "BTC" | "ETH";
 }
 
 export interface UpdateContactRequest {
   name?: string;
   address?: string;
-  tokenType?: "XLM" | "USDC" | "USDT" | "BTC" | "ETH";
+  tokenType?: TokenType;
+}
+
+export interface CreateContactRequest {
+  name: string;
+  address: string;
+  tokenType: TokenType;
 }
 
 // Balance and Wallet Types
@@ -143,6 +143,7 @@ export interface StellarTransaction {
   created_at: string;
   source_account: string;
   fee_charged: string;
+  memo?: string;
   operation_count: number;
   successful: boolean;
   operations: StellarOperation[];
@@ -150,6 +151,7 @@ export interface StellarTransaction {
 
 export interface TransactionHistory {
   transactions: StellarTransaction[];
+  total: number;
   isLoading: boolean;
   error: string | null;
 }
@@ -188,16 +190,22 @@ export interface ExecutionStep {
   substeps?: ExecutionStep[];
 }
 
+export interface MessageFeedback {
+  rating: "up" | "down";
+  comment?: string;
+  submittedAt: string;
+}
+
 // Chat and Message Types
 
 /** Discriminates between plain text and voice messages */
-export type MessageType = "text" | "voice";
+export type VoiceMessageType = "text" | "voice";
 
 export interface ChatMessage {
   id: string;
   type: "user" | "agent" | "system";
   /** 'text' (default) or 'voice' */
-  messageType?: MessageType;
+  messageType?: VoiceMessageType;
   content: string;
   timestamp: string;
   serverTimestamp?: number | string;
@@ -221,6 +229,7 @@ export interface ChatMessage {
     sizeBytes: number;
   };
   metadata?: {
+    feedback?: MessageFeedback;
     transactionHash?: string;
     amount?: string;
     tokenType?: string;
@@ -323,7 +332,13 @@ export interface FormField {
   type: "text" | "email" | "password" | "number" | "select";
   placeholder?: string;
   required?: boolean;
-  validation?: { required?: boolean; min?: number; max?: number; pattern?: string; message?: string };
+  validation?: {
+    required?: boolean;
+    min?: number;
+    max?: number;
+    pattern?: string;
+    message?: string;
+  };
   options?: { value: string; label: string }[];
 }
 
@@ -432,7 +447,7 @@ export interface ModalProps {
   className?: string;
 }
 
-export interface CardProps {
+export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   title?: string;
   subtitle?: string;
   children: React.ReactNode;
@@ -443,7 +458,7 @@ export interface CardProps {
 // Utility Types
 export type TokenType = "XLM" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
 export type AuthProvider = "email" | "google";
-export type MessageType = "user" | "agent" | "system";
+export type MessageRole = "user" | "agent" | "system";
 export type NotificationType = "success" | "error" | "warning" | "info";
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
@@ -583,9 +598,9 @@ export interface AuditLogStats {
 export interface SendPaymentRequest {
   recipientAddress: string;
   amount: string;
-  tokenType: 'XLM' | 'USDC' | 'USDT' | 'BTC' | 'ETH' | 'AQUA';
+  tokenType: "XLM" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
   memo?: string;
-  memoType?: 'none' | 'text' | 'id' | 'hash';
+  memoType?: "none" | "text" | "id" | "hash";
   recipientContactId?: string; // Optional reference to selected contact
 }
 
@@ -600,7 +615,7 @@ export interface ContactSelection {
   id: string;
   name: string;
   address: string;
-  tokenType: 'XLM' | 'USDC' | 'USDT' | 'BTC' | 'ETH' | 'AQUA';
+  tokenType: "XLM" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
   avatar?: string;
   isFavorite?: boolean;
   lastUsed?: string;
@@ -619,7 +634,7 @@ export interface ContactPickerProps {
   onClose: () => void;
   isOpen: boolean;
   isLoading?: boolean;
-  tokenType?: 'XLM' | 'USDC' | 'USDT' | 'BTC' | 'ETH' | 'AQUA';
+  tokenType?: "XLM" | "USDC" | "USDT" | "BTC" | "ETH" | "AQUA";
 }
 
 export interface PaymentLimits {
@@ -636,9 +651,18 @@ export interface PaymentFeeEstimate {
 }
 
 // Account Deployment Types
-export type DeploymentStep = 'auth' | 'funding' | 'deployment' | 'verification' | 'complete';
+export type DeploymentStep =
+  | "auth"
+  | "funding"
+  | "deployment"
+  | "verification"
+  | "complete";
 
-export type DeploymentStepStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+export type DeploymentStepStatus =
+  | "pending"
+  | "in_progress"
+  | "completed"
+  | "failed";
 
 export interface DeploymentStepInfo {
   id: DeploymentStep;
@@ -660,7 +684,7 @@ export interface DeploymentProgress {
 }
 
 export interface DeploymentConfig {
-  network: 'testnet' | 'mainnet';
+  network: "testnet" | "mainnet";
   fundingAmount: string;
   autoDeploy: boolean;
 }

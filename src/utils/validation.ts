@@ -1,31 +1,42 @@
-import { z } from 'zod';
-import { VALIDATION_MESSAGES, PAYMENT_LIMITS, SECURITY_VALIDATION } from '@/constants';
+import { z } from "zod";
+import {
+  VALIDATION_MESSAGES,
+  PAYMENT_LIMITS,
+  SECURITY_VALIDATION,
+} from "@/constants";
+import type { SendPaymentRequest } from "@/types";
 
 // Email validation schema
 export const emailSchema = z
   .string()
-  .min(1, 'Email is required')
-  .email('Please enter a valid email address');
+  .min(1, "Email is required")
+  .email("Please enter a valid email address");
 
 // Password validation schema
 export const passwordSchema = z
   .string()
-  .min(1, 'Password is required')
-  .min(8, 'Password must be at least 8 characters')
-  .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, 'Password must contain at least one uppercase letter, one lowercase letter, and one number');
+  .min(1, "Password is required")
+  .min(8, "Password must be at least 8 characters")
+  .regex(
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
+    "Password must contain at least one uppercase letter, one lowercase letter, and one number",
+  );
 
 // Name validation schema
 export const nameSchema = z
   .string()
-  .min(1, 'Name is required')
-  .min(2, 'Name must be at least 2 characters')
-  .max(50, 'Name must be less than 50 characters');
+  .min(1, "Name is required")
+  .min(2, "Name must be at least 2 characters")
+  .max(50, "Name must be less than 50 characters");
 
 // Stellar address validation schema
 export const stellarAddressSchema = z
   .string()
   .min(1, VALIDATION_MESSAGES.ADDRESS_INVALID)
-  .regex(SECURITY_VALIDATION.STELLAR_ADDRESS_REGEX, VALIDATION_MESSAGES.RECIPIENT_ADDRESS_INVALID);
+  .regex(
+    SECURITY_VALIDATION.STELLAR_ADDRESS_REGEX,
+    VALIDATION_MESSAGES.RECIPIENT_ADDRESS_INVALID,
+  );
 
 // Keep for backward compatibility
 export const starknetAddressSchema = stellarAddressSchema;
@@ -34,109 +45,153 @@ export const starknetAddressSchema = stellarAddressSchema;
 export const tokenAmountSchema = z
   .string()
   .min(1, VALIDATION_MESSAGES.AMOUNT_REQUIRED)
-  .regex(SECURITY_VALIDATION.AMOUNT_REGEX, VALIDATION_MESSAGES.AMOUNT_INVALID_FORMAT)
-  .refine((val) => parseFloat(val) > 0, VALIDATION_MESSAGES.AMOUNT_MUST_BE_POSITIVE);
+  .regex(
+    SECURITY_VALIDATION.AMOUNT_REGEX,
+    VALIDATION_MESSAGES.AMOUNT_INVALID_FORMAT,
+  )
+  .refine(
+    (val) => parseFloat(val) > 0,
+    VALIDATION_MESSAGES.AMOUNT_MUST_BE_POSITIVE,
+  );
 
 // Contact validation schemas
 export const createContactSchema = z.object({
   name: nameSchema,
   address: stellarAddressSchema,
-  tokenType: z.enum(['XLM', 'USDC', 'USDT', 'BTC', 'ETH'], {
-    required_error: 'Please select a token type',
+  tokenType: z.enum(["XLM", "USDC", "USDT", "BTC", "ETH"], {
+    error: "Please select a token type",
   }),
 });
 
 export const updateContactSchema = z.object({
   name: nameSchema.optional(),
   address: stellarAddressSchema.optional(),
-  tokenType: z.enum(['XLM', 'USDC', 'USDT', 'BTC', 'ETH']).optional(),
+  tokenType: z.enum(["XLM", "USDC", "USDT", "BTC", "ETH"]).optional(),
 });
 
 // Authentication schemas
 export const loginSchema = z.object({
   email: emailSchema,
-  password: z.string().min(1, 'Password is required'),
+  password: z.string().min(1, "Password is required"),
 });
 
-export const registerSchema = z.object({
-  email: emailSchema,
-  password: passwordSchema,
-  name: nameSchema.optional(),
-}).refine((data) => {
-  // Additional validation to ensure all required fields are present
-  return data.email && data.password && typeof data.email === 'string' && typeof data.password === 'string';
-}, {
-  message: "All required fields must be provided",
-  path: ["email"]
-});
+export const registerSchema = z
+  .object({
+    email: emailSchema,
+    password: passwordSchema,
+    name: nameSchema.optional(),
+  })
+  .refine(
+    (data) => {
+      // Additional validation to ensure all required fields are present
+      return (
+        data.email &&
+        data.password &&
+        typeof data.email === "string" &&
+        typeof data.password === "string"
+      );
+    },
+    {
+      message: "All required fields must be provided",
+      path: ["email"],
+    },
+  );
 
-export const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1, 'Current password is required'),
-  newPassword: passwordSchema,
-  confirmPassword: z.string().min(1, 'Please confirm your password'),
-}).refine((data) => data.newPassword === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ["confirmPassword"],
-});
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Current password is required"),
+    newPassword: passwordSchema,
+    confirmPassword: z.string().min(1, "Please confirm your password"),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ["confirmPassword"],
+  });
 
 export const forgotPasswordSchema = z.object({
   email: emailSchema,
 });
 
-export const resetPasswordSchema = z.object({
-  password: passwordSchema,
-  confirmPassword: z.string().min(1, 'Please confirm your password'),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords don't match",
-  path: ["confirmPassword"],
-});
+export const resetPasswordSchema = z
+  .object({
+    password: passwordSchema,
+    confirmPassword: z.string().min(1, "Please confirm your password"),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords don't match",
+    path: ["confirmPassword"],
+  });
 
 // Agent query validation
 export const agentQuerySchema = z.object({
-  query: z.string().min(1, 'Please enter a message').max(1000, 'Message is too long'),
+  query: z
+    .string()
+    .min(1, "Please enter a message")
+    .max(1000, "Message is too long"),
 });
 
 // Send Payment validation schema
-export const sendPaymentSchema = z.object({
-  recipientAddress: stellarAddressSchema,
-  amount: z
-    .string()
-    .min(1, VALIDATION_MESSAGES.AMOUNT_REQUIRED)
-    .regex(SECURITY_VALIDATION.AMOUNT_REGEX, VALIDATION_MESSAGES.AMOUNT_INVALID_FORMAT)
-    .refine((val) => parseFloat(val) > 0, VALIDATION_MESSAGES.AMOUNT_MUST_BE_POSITIVE)
-    .refine((val) => parseFloat(val) >= PAYMENT_LIMITS.MIN_AMOUNT, VALIDATION_MESSAGES.AMOUNT_EXCEEDS_MIN)
-    .refine((val) => parseFloat(val) <= PAYMENT_LIMITS.MAX_AMOUNT, VALIDATION_MESSAGES.AMOUNT_EXCEEDS_MAX),
-  tokenType: z.enum(PAYMENT_LIMITS.SUPPORTED_TOKENS, {
-    required_error: VALIDATION_MESSAGES.TOKEN_TYPE_REQUIRED,
-  }),
-  memo: z
-    .string()
-    .max(PAYMENT_LIMITS.MAX_MEMO_LENGTH, VALIDATION_MESSAGES.MEMO_TOO_LONG)
-    .optional(),
-  memoType: z.enum(PAYMENT_LIMITS.MEMO_TYPES).optional(),
-  recipientContactId: z.string().optional(),
-}).refine((data) => {
-  // If memo is provided, memoType must be specified (except for 'none')
-  if (data.memo && data.memo.length > 0 && !data.memoType) {
-    return false;
-  }
-  return true;
-}, {
-  message: VALIDATION_MESSAGES.MEMO_TYPE_REQUIRED,
-  path: ['memoType'],
-}).refine((data) => {
-  // Validate memo format based on type
-  if (data.memo && data.memoType === 'id') {
-    return SECURITY_VALIDATION.MEMO_ID_REGEX.test(data.memo);
-  }
-  if (data.memo && data.memoType === 'hash') {
-    return SECURITY_VALIDATION.MEMO_HASH_REGEX.test(data.memo);
-  }
-  return true;
-}, {
-  message: VALIDATION_MESSAGES.MEMO_INVALID_FORMAT,
-  path: ['memo'],
-});
+export const sendPaymentSchema = z
+  .object({
+    recipientAddress: stellarAddressSchema,
+    amount: z
+      .string()
+      .min(1, VALIDATION_MESSAGES.AMOUNT_REQUIRED)
+      .regex(
+        SECURITY_VALIDATION.AMOUNT_REGEX,
+        VALIDATION_MESSAGES.AMOUNT_INVALID_FORMAT,
+      )
+      .refine(
+        (val) => parseFloat(val) > 0,
+        VALIDATION_MESSAGES.AMOUNT_MUST_BE_POSITIVE,
+      )
+      .refine(
+        (val) => parseFloat(val) >= PAYMENT_LIMITS.MIN_AMOUNT,
+        VALIDATION_MESSAGES.AMOUNT_EXCEEDS_MIN,
+      )
+      .refine(
+        (val) => parseFloat(val) <= PAYMENT_LIMITS.MAX_AMOUNT,
+        VALIDATION_MESSAGES.AMOUNT_EXCEEDS_MAX,
+      ),
+    tokenType: z.enum(PAYMENT_LIMITS.SUPPORTED_TOKENS, {
+      error: VALIDATION_MESSAGES.TOKEN_TYPE_REQUIRED,
+    }),
+    memo: z
+      .string()
+      .max(PAYMENT_LIMITS.MAX_MEMO_LENGTH, VALIDATION_MESSAGES.MEMO_TOO_LONG)
+      .optional(),
+    memoType: z.enum(PAYMENT_LIMITS.MEMO_TYPES).optional(),
+    recipientContactId: z.string().optional(),
+  })
+  .refine(
+    (data) => {
+      // If memo is provided, memoType must be specified (except for 'none')
+      if (data.memo && data.memo.length > 0 && !data.memoType) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message: VALIDATION_MESSAGES.MEMO_TYPE_REQUIRED,
+      path: ["memoType"],
+    },
+  )
+  .refine(
+    (data) => {
+      // Validate memo format based on type
+      if (data.memo && data.memoType === "id") {
+        return SECURITY_VALIDATION.MEMO_ID_REGEX.test(data.memo);
+      }
+      if (data.memo && data.memoType === "hash") {
+        return SECURITY_VALIDATION.MEMO_HASH_REGEX.test(data.memo);
+      }
+      return true;
+    },
+    {
+      message: VALIDATION_MESSAGES.MEMO_INVALID_FORMAT,
+      path: ["memo"],
+    },
+  );
 
 // Utility functions for validation
 export const validateEmail = (email: string): boolean => {
@@ -192,23 +247,25 @@ export const validateSendPayment = (data: {
     return { isValid: true, errors: [] };
   } catch (error: unknown) {
     if (error instanceof z.ZodError) {
-      const errors = error.errors.map((err: z.ZodIssue) => `${err.path.join('.')}: ${err.message}`);
+      const errors = error.issues.map(
+        (err: z.ZodIssue) => `${err.path.join(".")}: ${err.message}`,
+      );
       return { isValid: false, errors };
     }
-    return { isValid: false, errors: ['Validation failed'] };
+    return { isValid: false, errors: ["Validation failed"] };
   }
 };
 
 export const validateMemo = (memo: string, memoType: string): boolean => {
   if (!memo || memo.length === 0) return true;
-  
-  if (memoType === 'id') {
+
+  if (memoType === "id") {
     return SECURITY_VALIDATION.MEMO_ID_REGEX.test(memo);
   }
-  if (memoType === 'hash') {
+  if (memoType === "hash") {
     return SECURITY_VALIDATION.MEMO_HASH_REGEX.test(memo);
   }
-  if (memoType === 'text') {
+  if (memoType === "text") {
     return memo.length <= PAYMENT_LIMITS.MAX_MEMO_LENGTH;
   }
   return true;
@@ -217,28 +274,25 @@ export const validateMemo = (memo: string, memoType: string): boolean => {
 export const validateAmountRange = (
   amount: string,
   min: number = PAYMENT_LIMITS.MIN_AMOUNT,
-  max: number = PAYMENT_LIMITS.MAX_AMOUNT
+  max: number = PAYMENT_LIMITS.MAX_AMOUNT,
 ): boolean => {
   const numAmount = parseFloat(amount);
   if (isNaN(numAmount)) return false;
   return numAmount >= min && numAmount <= max;
 };
 
-export const sanitizePaymentInput = (data: {
+type PaymentInput = {
   recipientAddress: string;
   amount: string;
   tokenType: string;
   memo?: string;
   memoType?: string;
   recipientContactId?: string;
-}): {
-  recipientAddress: string;
-  amount: string;
-  tokenType: string;
-  memo?: string;
-  memoType?: string;
-  recipientContactId?: string;
-} => {
+};
+
+export function sanitizePaymentInput(data: SendPaymentRequest): SendPaymentRequest;
+export function sanitizePaymentInput(data: PaymentInput): PaymentInput;
+export function sanitizePaymentInput(data: PaymentInput): PaymentInput {
   return {
     recipientAddress: data.recipientAddress.trim(),
     amount: data.amount.trim(),
@@ -247,4 +301,4 @@ export const sanitizePaymentInput = (data: {
     memoType: data.memoType?.toLowerCase(),
     recipientContactId: data.recipientContactId?.trim(),
   };
-};
+}
