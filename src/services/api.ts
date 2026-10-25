@@ -14,6 +14,9 @@ import {
   AgentQueryRequest,
   AgentQueryResponse,
   ApiResponse,
+  SignInActivityPage,
+  ChatHistoryPage,
+  ChatHistoryQuery,
   PromptVersionRecord,
   LiquidityStats,
   LiquidityRequest,
@@ -22,6 +25,10 @@ import {
   AuditLogsQueryParams,
   AuditLogsResponse,
   AuditLogStats,
+  SendPaymentRequest,
+} from '@/types';
+import agentService from './agentService';
+import { tokenRefreshService } from './tokenRefreshService';
   MfaStatusData,
   MfaEnrollmentData,
   MfaVerifyRequest,
@@ -29,8 +36,12 @@ import {
   PaymentSubmissionResult,
   PaymentStatusResult,
 } from "@/types";
-import agentService from "./agentService";
+import agentService, { classifyAgentError, isStateChangingQuery, agentErrorMessage } from "./agentService";
+import type { AgentStatus } from "@/types/agent";
+import { parseAgentEnvelope, protocolErrorResult } from "./agentEnvelope";
 import { tokenRefreshService } from "./tokenRefreshService";
+import type { MissedEventsPage } from "./socketManager";
+import { clearUserScopedStorage } from "./storageInventory";
 import {
   isRetryableError,
   computeBackoffMs,
@@ -285,6 +296,12 @@ class ApiService {
           return Promise.reject(error);
         }
 
+        // A step-up challenge is not an expired session: let the caller prompt for
+        // re-authentication instead of refreshing or logging out (#255, ADR-0006).
+        if (error.response?.data?.code === "REAUTH_REQUIRED") {
+          return Promise.reject(error);
+        }
+
         if (
           error.response?.status !== 401 ||
           originalRequest._retry
@@ -528,12 +545,9 @@ class ApiService {
       );
     } finally {
       this.clearToken();
-
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("user_data");
-        localStorage.removeItem("refresh_token");
-        sessionStorage.clear();
-      }
+      // Purge every user-scoped key (auth, profile, chat history, offline queue) and all
+      // session storage; device preferences stay (#256)
+      clearUserScopedStorage();
     }
   }
 
@@ -583,6 +597,45 @@ class ApiService {
     return response.data;
   }
 
+  /**
+   * Recent sign-in activity for the current user (#257).
+   * Proposed contract: `GET /auth/activity?limit=<n>` → `SignInActivityPage`.
+   *
+   * @throws {AxiosError} 404/501 when the backend does not support activity yet.
+   */
+  async getSignInActivity(limit = 20): Promise<SignInActivityPage> {
+    const response = await this.api.get<SignInActivityPage>('/auth/activity', { params: { limit } });
+    return response.data;
+  }
+
+  /** Sign out another session (#257). Proposed: `DELETE /auth/sessions/:sessionId` → 204. */
+  async revokeSession(sessionId: string): Promise<void> {
+    await this.api.delete(`/auth/sessions/${encodeURIComponent(sessionId)}`);
+  }
+
+  /** Report an activity event as "not me" (#257). Proposed: `POST /auth/activity/:id/report` → 202. */
+  async reportSignInEvent(eventId: string): Promise<void> {
+    await this.api.post(`/auth/activity/${encodeURIComponent(eventId)}/report`, {});
+  }
+
+  /**
+   * Server-driven step-up (#255, ADR-0006): confirm the password after a `REAUTH_REQUIRED`
+   * challenge. Distinct from `reauthenticate(email, password)`, which verifies credentials
+   * for the settings page's client-side grant.
+   * Proposed contract: `POST /auth/reauthenticate` `{ password }` → `{ authenticatedAt, expiresAt }`.
+   *
+   * @param password - The user's current password. Never stored or logged.
+   * @throws {AxiosError} 401/403 when the password is wrong.
+   */
+  async stepUpReauthenticate(password: string): Promise<{ authenticatedAt: string; expiresAt: string }> {
+    const response = await this.api.post<{ authenticatedAt: string; expiresAt: string }>(
+      '/auth/reauthenticate',
+      { password },
+      { withCredentials: true },
+    );
+    return response.data;
+  }
+
   async changePassword(
     currentPassword: string,
     newPassword: string,
@@ -620,7 +673,12 @@ class ApiService {
     try {
       await this.api.delete("/account");
       api = true;
-    } catch {
+    } catch (error) {
+      // Server asks for recent authentication (#255): stop before touching local data or the
+      // token, so the caller can prompt, re-authenticate and retry the deletion.
+      if ((error as { response?: { data?: { code?: string } } })?.response?.data?.code === "REAUTH_REQUIRED") {
+        throw error;
+      }
       api = false;
     }
 
@@ -767,6 +825,27 @@ class ApiService {
     >("/auth/funding/batch-fund", { amounts });
 
     return response.data;
+  }
+
+  /**
+   * Fetch chat events emitted after `afterCursor`, oldest first, for post-reconnect resync (#277).
+   * Proposed contract: `GET /chat/events?after=<cursor>&limit=<n>` →
+   * `{ events: [{ event, cursor, data }], hasMore, nextCursor? }`.
+   *
+   * @param afterCursor - Last cursor the client acknowledged.
+   * @param limit - Page size (defaults to 100).
+   * @returns Promise resolving to one page of missed events.
+   * @throws {AxiosError} Throws if the request fails; the socket manager reports it as a resync error.
+   */
+  async getMissedChatEvents(afterCursor: string, limit = 100): Promise<MissedEventsPage> {
+    const response = await this.api.get<MissedEventsPage>('/chat/events', {
+      params: { after: afterCursor, limit },
+    });
+    return {
+      events: Array.isArray(response.data?.events) ? response.data.events : [],
+      hasMore: Boolean(response.data?.hasMore),
+      nextCursor: response.data?.nextCursor,
+    };
   }
 
   // Account transaction endpoints
@@ -1036,11 +1115,58 @@ class ApiService {
     }
   }
 
+  // Payment endpoints
+
+  /**
+   * Submit a payment to the backend. The backend is expected to create and
+   * broadcast the Stellar transaction and return the confirmed result.
+   *
+   * The client must NOT treat a successful response here as the only
+   * authorisation gate — the backend enforces its own authorisation and
+   * balance checks independently.
+   *
+   * @param data - Validated and sanitized `SendPaymentRequest` payload.
+   * @returns Promise resolving to `ApiResponse` containing the transaction hash
+   *          and the ledger-confirmed status of the payment.
+   * @throws {AxiosError} Throws for network or server errors.
+   *
+   * @see docs/API_CONTRACT.md — "Payment Endpoint" section.
+   */
+  async sendPayment(
+    data: SendPaymentRequest,
+  ): Promise<ApiResponse<{ transactionHash: string; status: 'success' | 'failed' }>> {
+    const response = await this.api.post<
+      ApiResponse<{ transactionHash: string; status: 'success' | 'failed' }>
+    >('/payments/send', data);
+    return response.data;
+  }
+
+  // Agent query - Optimized for backend integration  /**
+   * Send a query to the AI agent. Attempts connected experimental agent service first, falling back to backend `/query`.
+   * Does NOT throw on backend/execution error; catches exceptions and returns a resolved `AgentQueryResponse` object with `success: false` and friendly message.
+   *
+   * @param data - Request payload containing user query string.
+   * @returns Promise resolving to `AgentQueryResponse` containing result envelope.
+   *
+   * @example
+   * ```ts
+   * import { apiService } from '@/services/api';
+   * 
+   * const response = await apiService.queryAgent({ query: 'Swap 10 XLM for USDC' });
+   * if (response.result.success) {
+   *   console.log('Agent output:', response.result.data);
+   * } else {
+   *   console.error('Agent query error:', response.result.error);
+   * }
+   * ```
+   */
+  async queryAgent(data: AgentQueryRequest): Promise<AgentQueryResponse> {
+    // First try the experimental agent service
   // Agent query
 
   async queryAgent(
     data: AgentQueryRequest,
-    options?: { signal?: AbortSignal },
+    options?: { onDelta?: (text: string) => void; signal?: AbortSignal },
   ): Promise<AgentQueryResponse> {
     const isAbort = (error: unknown): boolean => {
       const value = error as { code?: string; name?: string };
@@ -1052,16 +1178,18 @@ class ApiService {
       );
     };
 
+    // First try the experimental agent service (streams partial text when supported, #261)
     try {
       if (agentService.isAgentConnected()) {
         logger.debug(
           "[ApiService] Using experimental agent service",
         );
 
-        return await agentService.queryAgent(data, options);
+        return await agentService.queryAgentStreaming(data, options ?? {});
       }
     } catch (error: unknown) {
-      if (isAbort(error)) {
+      // A cancelled request (Stop button / route change) must not fall through and re-send the query
+      if (isAbort(error) || options?.signal?.aborted) {
         throw error;
       }
 
@@ -1084,29 +1212,15 @@ class ApiService {
         { signal: options?.signal },
       );
 
-      if (response.data?.result) {
-        return {
-          result: {
-            success: response.data.result.success ?? true,
-            data: response.data.result.data || "Success",
-            error: response.data.result.error,
-            executionTrace:
-              response.data.result.executionTrace,
-          },
-        };
+      // Same envelope rules as AgentService: no defaulted success, no raw-body fallback (#275)
+      const parsed = parseAgentEnvelope(response.data);
+      if (!parsed.ok) {
+        console.error("[ApiService] Malformed /query response:", parsed.reason);
+        return { result: protocolErrorResult(parsed.reason) };
       }
-
-      return {
-        result: {
-          success: true,
-          data:
-            typeof response.data === "string"
-              ? response.data
-              : JSON.stringify(response.data),
-          error: undefined,
-        },
-      };
+      return { result: parsed.result };
     } catch (error: unknown) {
+      // A user-cancelled request (Stop button / navigation) is not a failure to report
       if (isAbort(error)) {
         throw error;
       }
@@ -1123,24 +1237,23 @@ class ApiService {
         errorValue.message ||
         "Unknown error";
 
-      let friendlyMessage = "Query failed. Please try again.";
-
-      if (errorMsg.toLowerCase().includes("invalid query")) {
-        friendlyMessage =
-          "I didn't understand that. Could you please rephrase your question?";
-      } else if (errorMsg.toLowerCase().includes("timeout")) {
-        friendlyMessage =
-          "The request is taking longer than expected. Please try again.";
-      } else if (errorMsg.toLowerCase().includes("network")) {
-        friendlyMessage =
-          "I'm having trouble connecting. Please check your internet connection and try again.";
-      }
+      // Keep timeouts distinct from connectivity failures (#274)
+      const errorKind = classifyAgentError(error);
+      const stateChanging = isStateChangingQuery(data.query);
+      const friendlyMessage = errorKind === "server" || errorKind === "unknown"
+        ? "Query failed. Please try again."
+        : agentErrorMessage(errorKind, stateChanging);
 
       return {
         result: {
           success: false,
           data: friendlyMessage,
           error: errorMsg,
+          errorKind,
+          requestId: data.clientRequestId,
+          stateChanging,
+          // No HTTP response means the message never reached the service (#266)
+          delivered: Boolean((error as { response?: unknown })?.response),
         },
       };
     }
@@ -1152,74 +1265,30 @@ class ApiService {
     try {
       return await agentService.getStatus();
     } catch (error) {
-      console.error("Failed to get agent status:", error);
-
-      const now = new Date().toISOString();
-
-      return {
+      console.error('Failed to get agent status:', error);
+      // Unknown, not fabricated: no placeholder metrics or protocol states (#271)
+      const unavailable: AgentStatus = {
         isOnline: false,
-        version: "1.0.0",
-        uptime: 0,
-        lastActivity: now,
-        activeConnections: 0,
-        services: {
-          vesu: {
-            isActive: false,
-            isHealthy: false,
-            lastCheck: now,
-          },
-          atomiq: {
-            isActive: false,
-            isHealthy: false,
-            lastCheck: now,
-          },
-          xverse: {
-            isActive: false,
-            isHealthy: false,
-            lastCheck: now,
-          },
-          troves: {
-            isActive: false,
-            isHealthy: false,
-            lastCheck: now,
-          },
-          database: {
-            isActive: false,
-            isHealthy: false,
-            lastCheck: now,
-          },
-        },
+        source: 'unavailable',
+        version: null,
+        uptime: null,
+        lastActivity: null,
+        activeConnections: null,
+        services: {},
+        health: null,
       };
+      return unavailable;
     }
   }
 
+  /**
+   * Retrieve agent capabilities with their source and freshness (#270). Never throws; an
+   * outage is reported as `availability: 'unavailable'` instead of an empty capability list.
+   *
+   * @returns Promise resolving to `AgentCapabilitiesResult`.
+   */
   async getAgentCapabilities() {
-    try {
-      return await agentService.getCapabilities();
-    } catch (error) {
-      console.error("Failed to get agent capabilities:", error);
-
-      return {
-        supportedActions: [],
-        supportedAssets: [],
-        supportedProtocols: [],
-        features: {
-          defi: false,
-          crossChain: false,
-          voiceCommands: false,
-          smartContracts: false,
-          yieldFarming: false,
-          lending: false,
-          borrowing: false,
-          swapping: false,
-        },
-        limits: {
-          maxQueryLength: 0,
-          maxConcurrentQueries: 0,
-          rateLimitPerMinute: 0,
-        },
-      };
-    }
+    return agentService.getCapabilities();
   }
 
   async checkAgentHealth() {
@@ -1256,13 +1325,15 @@ class ApiService {
     }
   }
 
+  /**
+   * Retrieve stored agent memory records for a given user (#267). Never throws; returns a typed
+   * result so callers can tell an empty memory (`ok: true, entries: []`) from an outage (`ok: false`).
+   *
+   * @param userId - User ID string.
+   * @returns Promise resolving to `AgentMemoryResult`.
+   */
   async getAgentMemory(userId: string) {
-    try {
-      return await agentService.getMemory(userId);
-    } catch (error) {
-      console.error("Failed to get agent memory:", error);
-      return [];
-    }
+    return agentService.getMemory(userId);
   }
 
   async clearAgentMemory(userId: string): Promise<void> {
@@ -1272,6 +1343,29 @@ class ApiService {
       console.error("Failed to clear agent memory:", error);
       throw error;
     }
+  }
+
+  /**
+   * Fetch one page of the user's chat history, newest first, from the server (#265, #264).
+   * Proposed contract: `GET /chat/history?before=<cursor>&limit=<n>` →
+   * `{ messages: ChatMessage[], nextCursor: string | null, hasMore: boolean }`.
+   *
+   * @param query - `before` cursor from the previous page (omit for the newest page) and page size (defaults to 50, max 100).
+   * @returns Promise resolving to one page of history.
+   * @throws {AxiosError} Throws if the request fails.
+   */
+  async getChatHistory(query: ChatHistoryQuery = {}): Promise<ChatHistoryPage> {
+    const limit = Math.min(Math.max(1, query.limit ?? 50), 100);
+    const params: Record<string, string | number> = { limit };
+    if (query.before) params.before = query.before;
+
+    const response = await this.api.get<ChatHistoryPage>('/chat/history', { params });
+    const data = response.data;
+    return {
+      messages: Array.isArray(data?.messages) ? data.messages : [],
+      nextCursor: typeof data?.nextCursor === 'string' && data.nextCursor ? data.nextCursor : null,
+      hasMore: Boolean(data?.hasMore && data?.nextCursor),
+    };
   }
 
   // Conversation endpoints
