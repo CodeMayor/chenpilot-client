@@ -1,9 +1,13 @@
 import { z } from 'zod';
+import { VALIDATION_MESSAGES, PAYMENT_LIMITS, SECURITY_VALIDATION } from '@/constants';
+import { SUPPORTED_ASSETS } from '@/types';
 import { VALIDATION_MESSAGES, PAYMENT_LIMITS, SECURITY_VALIDATION, TOKEN_DECIMALS } from '@/constants';
 
-// Email validation schema
+// Email validation schema. Surrounding whitespace is accepted (and trimmed in the parsed
+// value) so an accidental space doesn't block sign-in; see normalizeEmail (#259).
 export const emailSchema = z
   .string()
+  .trim()
   .min(1, 'Email is required')
   .email('Please enter a valid email address');
 
@@ -57,8 +61,10 @@ export const hasValidAssetPrecision = (amount: string, tokenType?: string): bool
 export const createContactSchema = z.object({
   name: nameSchema,
   address: stellarAddressSchema,
+  tokenType: z.enum(SUPPORTED_ASSETS, {
   tokenType: z.enum(['XLM', 'STRK', 'USDC', 'USDT', 'BTC', 'ETH', 'AQUA'], {
     required_error: 'Please select a token type',
+    invalid_type_error: `Unsupported token type. Supported tokens are: ${SUPPORTED_ASSETS.join(', ')}`,
   }),
   note: z.string().max(280, 'Contact notes are limited to 280 characters').optional(),
 });
@@ -66,6 +72,9 @@ export const createContactSchema = z.object({
 export const updateContactSchema = z.object({
   name: nameSchema.optional(),
   address: stellarAddressSchema.optional(),
+  tokenType: z.enum(SUPPORTED_ASSETS, {
+    invalid_type_error: `Unsupported token type. Supported tokens are: ${SUPPORTED_ASSETS.join(', ')}`,
+  }).optional(),
   tokenType: z.enum(['XLM', 'STRK', 'USDC', 'USDT', 'BTC', 'ETH', 'AQUA']).optional(),
   note: z.string().max(280, 'Contact notes are limited to 280 characters').optional(),
 });
@@ -124,8 +133,9 @@ export const sendPaymentSchema = z.object({
     .refine((val) => parseFloat(val) > 0, VALIDATION_MESSAGES.AMOUNT_MUST_BE_POSITIVE)
     .refine((val) => parseFloat(val) >= PAYMENT_LIMITS.MIN_AMOUNT, VALIDATION_MESSAGES.AMOUNT_EXCEEDS_MIN)
     .refine((val) => parseFloat(val) <= PAYMENT_LIMITS.MAX_AMOUNT, VALIDATION_MESSAGES.AMOUNT_EXCEEDS_MAX),
-  tokenType: z.enum(PAYMENT_LIMITS.SUPPORTED_TOKENS, {
+  tokenType: z.enum(SUPPORTED_ASSETS, {
     required_error: VALIDATION_MESSAGES.TOKEN_TYPE_REQUIRED,
+    invalid_type_error: `Unsupported token type. Supported tokens are: ${SUPPORTED_ASSETS.join(', ')}`,
   }),
   memo: z.string().optional(),
   memoType: z.enum(PAYMENT_LIMITS.MEMO_TYPES).optional(),
@@ -171,6 +181,54 @@ export const sendPaymentSchema = z.object({
     }
   }
 });
+
+// Normalize a contact address: trim whitespace and uppercase
+export const normalizeContactAddress = (address: string): string =>
+  address.trim().toUpperCase();
+
+// Validate contact address after normalization; returns error string or null
+export const validateContactAddress = (raw: string): string | null => {
+  const normalized = normalizeContactAddress(raw);
+  const result = stellarAddressSchema.safeParse(normalized);
+  if (!result.success) {
+    const issues = (result.error as any).issues ?? (result.error as any).errors ?? [];
+    return issues[0]?.message ?? 'Invalid Stellar address';
+  }
+  return null;
+};
+
+// Full contact create/update validation utilities
+export const validateContact = (
+  data: { name: string; address: string; tokenType: string }
+): { isValid: boolean; errors: Record<string, string> } => {
+  const normalized = { ...data, address: normalizeContactAddress(data.address) };
+  const result = createContactSchema.safeParse(normalized);
+  if (result.success) return { isValid: true, errors: {} };
+  const issues = (result.error as any).issues ?? (result.error as any).errors ?? [];
+  const errors: Record<string, string> = {};
+  for (const issue of issues) {
+    const key = issue.path[0] as string;
+    if (!errors[key]) errors[key] = issue.message;
+  }
+  return { isValid: false, errors };
+};
+
+export const validateUpdateContact = (
+  data: { name?: string; address?: string; tokenType?: string }
+): { isValid: boolean; errors: Record<string, string> } => {
+  const normalized = data.address
+    ? { ...data, address: normalizeContactAddress(data.address) }
+    : data;
+  const result = updateContactSchema.safeParse(normalized);
+  if (result.success) return { isValid: true, errors: {} };
+  const issues = (result.error as any).issues ?? (result.error as any).errors ?? [];
+  const errors: Record<string, string> = {};
+  for (const issue of issues) {
+    const key = issue.path[0] as string;
+    if (!errors[key]) errors[key] = issue.message;
+  }
+  return { isValid: false, errors };
+};
 
 // Utility functions for validation
 export const validateEmail = (email: string): boolean => {
@@ -318,21 +376,4 @@ export const sanitizePaymentInput = (data: {
     recipientContactId: data.recipientContactId?.trim(),
     idempotencyKey: data.idempotencyKey?.trim() || undefined,
   };
-};
-
-export const getPaymentFailureMessage = (error: unknown): string => {
-  let message = error instanceof Error ? error.message : String(error || '');
-
-  if (typeof error === 'object' && error !== null && 'response' in error) {
-    const response = (error as { response?: { data?: { message?: unknown } } }).response;
-    if (typeof response?.data?.message === 'string') {
-      message = response.data.message;
-    }
-  }
-
-  if (/reserve|minimum\s+(native\s+)?balance|insufficient\s+native\s+balance/i.test(message)) {
-    return "This payment would leave too little XLM to meet Stellar's minimum account reserve. Reduce the amount or add XLM.";
-  }
-
-  return message || 'Failed to send payment';
 };

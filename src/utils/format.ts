@@ -366,11 +366,11 @@ export function formatDate(date: string | Date, options?: Intl.DateTimeFormatOpt
 /**
  * Format a relative time (e.g., "2 hours ago")
  * @param date - Date string or Date object
+ * @param now - Reference point for "now" (default: current time). Pass a fixed Date in tests for determinism.
  * @returns Relative time string
  */
-export function formatRelativeTime(date: string | Date): string {
+export function formatRelativeTime(date: string | Date, now: Date = new Date()): string {
   const dateObj = typeof date === 'string' ? new Date(date) : date;
-  const now = new Date();
   const diffInSeconds = Math.floor((now.getTime() - dateObj.getTime()) / 1000);
 
   if (diffInSeconds < 60) {
@@ -398,6 +398,30 @@ export function formatRelativeTime(date: string | Date): string {
   }
 
   return formatDate(dateObj, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+/**
+ * Format an exact, fully-localized timestamp suitable for accessible labels and audit trails.
+ * @param date - Date string or Date object
+ * @param locale - BCP 47 locale tag (default: 'en-US')
+ * @returns ISO-8601 datetime string for machine consumption and a human-readable label.
+ */
+export function formatExactTime(
+  date: string | Date,
+  locale: string = 'en-US',
+): { iso: string; label: string } {
+  const dateObj = typeof date === 'string' ? new Date(date) : date;
+  const iso = dateObj.toISOString();
+  const label = dateObj.toLocaleString(locale, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  });
+  return { iso, label };
 }
 
 /**
@@ -443,6 +467,22 @@ export function formatFileSize(bytes: number, decimals: number = 2): string {
 }
 
 /**
+ * Filter transactions by full hash, case-insensitively.
+ * An empty query returns all transactions unchanged.
+ * @param transactions - List of Stellar transactions to filter
+ * @param query - Substring to match against each transaction hash
+ */
+export function filterTransactionsByHash(
+  transactions: { hash: string }[],
+  query: string,
+): { hash: string }[] {
+  const trimmed = query.trim();
+  if (!trimmed) return transactions;
+  const lower = trimmed.toLowerCase();
+  return transactions.filter((tx) => tx.hash.toLowerCase().includes(lower));
+}
+
+/**
  * Capitalize the first letter of a string
  * @param str - The string to capitalize
  * @returns Capitalized string
@@ -474,4 +514,78 @@ export function truncateText(text: string, maxLength: number, suffix: string = '
     return text;
   }
   return text.slice(0, maxLength - suffix.length) + suffix;
+}
+
+export const CHAT_DRAFTS_STORAGE_KEY = "chat_drafts_v1";
+export const CHAT_DRAFT_LIMIT = 20;
+
+export interface StoredChatDraft {
+  text: string;
+  updatedAt: number;
+}
+
+export type ChatDraftMap = Record<string, StoredChatDraft>;
+
+function isStoredChatDraft(value: unknown): value is StoredChatDraft {
+  if (!value || typeof value !== "object") return false;
+  const draft = value as { text?: unknown; updatedAt?: unknown };
+  return typeof draft.text === "string" && typeof draft.updatedAt === "number";
+}
+
+export function readChatDrafts(): ChatDraftMap {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(CHAT_DRAFTS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const drafts: ChatDraftMap = {};
+    for (const [id, value] of Object.entries(parsed)) {
+      if (isStoredChatDraft(value)) drafts[id] = value;
+    }
+    return drafts;
+  } catch {
+    return {};
+  }
+}
+
+export function pruneChatDrafts(
+  drafts: ChatDraftMap,
+  activeId?: string | null,
+  limit: number = CHAT_DRAFT_LIMIT,
+): ChatDraftMap {
+  const recent = Object.entries(drafts)
+    .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
+    .slice(0, limit);
+  const kept = Object.fromEntries(recent) as ChatDraftMap;
+  if (activeId && drafts[activeId] && !kept[activeId]) {
+    kept[activeId] = drafts[activeId];
+  }
+  return kept;
+}
+
+export function writeChatDrafts(drafts: ChatDraftMap): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(CHAT_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+}
+
+export function getChatDraft(conversationId: string): string {
+  return readChatDrafts()[conversationId]?.text ?? "";
+}
+
+export function setChatDraft(conversationId: string, text: string, now: number = Date.now()): void {
+  const drafts = readChatDrafts();
+  if (!text) {
+    delete drafts[conversationId];
+  } else {
+    drafts[conversationId] = { text, updatedAt: now };
+  }
+  writeChatDrafts(pruneChatDrafts(drafts, conversationId));
+}
+
+export function clearChatDraft(conversationId: string): void {
+  const drafts = readChatDrafts();
+  if (!(conversationId in drafts)) return;
+  delete drafts[conversationId];
+  writeChatDrafts(drafts);
 }
