@@ -13,6 +13,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "lighthouse": "lhci autorun",
+    "lighthouse:collect": "lhci collect",
+    "lighthouse:assert": "lhci assert",
     "test:a11y": "vitest run src/test/accessibility.test.tsx",
     "test:e2e": "playwright test",
     "audit": "pnpm audit --audit-level=high --prod",
@@ -44,6 +47,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@eslint/js": "^9.39.2",
+    "@lhci/cli": "^0.14.0",
     "@playwright/test": "^1.64.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^7.0.1",
