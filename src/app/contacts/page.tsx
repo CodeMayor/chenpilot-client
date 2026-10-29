@@ -36,6 +36,55 @@ import { Contact, CreateContactRequest, ContactExportEnvelope, ContactMemoType }
 import toast from 'react-hot-toast';
 
 
+
+export default function ContactsPage() {
+  const router = useRouter();
+  const dispatch = useAppDispatch();
+  const { isAuthenticated } = useAppSelector((state) => state.auth);
+  const { list: contacts, isLoading, mutating, mutationError } = useAppSelector(
+    (state) => state.contacts,
+  );
+  const [searchTerm, setSearchTerm] = useState('');
+  const [contactsPage, setContactsPage] = useState(1);
+
+  // Create modal
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  // Edit modal
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isAddressChangeConfirmationOpen, setIsAddressChangeConfirmationOpen] = useState(false);
+  const [editingContact, setEditingContact] = useState<Contact | null>(null);
+  const [pendingContactAction, setPendingContactAction] = useState<'create' | 'update' | null>(null);
+  const createFormRef = useRef<HTMLFormElement>(null);
+  const editFormRef = useRef<HTMLFormElement>(null);
+  const [formData, setFormData] = useState<CreateContactRequest>(createEmptyContactForm());
+  const [addressError, setAddressError] = useState<string | null>(null);
+
+  // Import state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importPreview, setImportPreview] = useState<ContactsImportPreview | null>(null);
+  const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+
+  /** Timer refs keyed by contact id so multiple undo windows can coexist. */
+  const undoTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // IDs for accessible live-region and search label
+  const searchId = useId();
+  const resultCountId = useId();
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      router.push('/auth/login');
+      return;
+    }
+    dispatch(getContacts());
+  }, [dispatch, isAuthenticated, router]);
+
+  const filteredContacts = contacts.filter(
+    (contact) =>
+      contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      contact.address.toLowerCase().includes(searchTerm.toLowerCase()),
+  );uter]);
 const createEmptyContactForm = (): CreateContactRequest => ({
   name: '',
   address: '',
@@ -146,25 +195,18 @@ export default function ContactsPage() {
     dispatch(getContacts());
   }, [dispatch, isAuthenticated, router]);
 
-  const filteredContacts = contacts.filter(
-    (contact) =>
-      contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      contact.address.toLowerCase().includes(searchTerm.toLowerCase()),
-  );uter]);
-
   const filteredContacts = filterContacts(contacts, searchTerm);
   const pageCount = Math.ceil(filteredContacts.length / PAGINATION.CONTACTS_PAGE_SIZE);
   const currentContactsPage = Math.min(contactsPage, Math.max(1, pageCount));
   const visibleContacts = paginateContacts(filteredContacts, currentContactsPage);
 
-  const submitCreateContact = async () => {
   const favoriteCount = contacts.filter((c) => c.isFavorite).length;
 
   // ─── Create / Edit ───────────────────────────────────────────────────────────
 
   // ── Create ──────────────────────────────────────────────────────────────
   const handleCreateContact = async (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault();entDefault();
     dispatch(clearCreateError());
     const addrErr = validateContactAddress(formData.address);
     if (addrErr) { setAddressError(addrErr); return; }
