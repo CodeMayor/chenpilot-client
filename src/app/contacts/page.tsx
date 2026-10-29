@@ -37,6 +37,65 @@ import toast from 'react-hot-toast';
 
 
 
+
+const createEmptyContactForm = (): CreateContactRequest => ({
+  name: '',
+  address: '',
+  tokenType: 'XLM',
+  note: '',
+});
+
+// ---------------------------------------------------------------------------
+// Token options aligned with backend contract
+// ---------------------------------------------------------------------------
+const TOKEN_OPTIONS = ['XLM', 'USDC', 'USDT', 'BTC', 'ETH'] as const;
+
+const MEMO_TYPE_OPTIONS: { value: ContactMemoType; label: string }[] = [
+  { value: 'none', label: 'No default memo' },
+  { value: 'text', label: 'Text' },
+  { value: 'id', label: 'ID (numeric)' },
+  { value: 'hash', label: 'Hash (hex)' },
+];
+
+// ---------------------------------------------------------------------------
+// Local export helper — purely client-side, no data leaves the device
+// ---------------------------------------------------------------------------
+function exportContactsAsJson(contacts: Contact[]): void {
+  const envelope: ContactExportEnvelope = {
+    format: 'chenpilot-contacts-v1',
+    exportedAt: new Date().toISOString(),
+    contacts: contacts.map((c) => ({
+      name: c.name,
+      address: c.address,
+      tokenType: c.tokenType,
+      defaultMemo: c.defaultMemo,
+      defaultMemoType: c.defaultMemoType,
+      isFavorite: c.isFavorite,
+      createdAt: c.createdAt,
+    })),
+  };
+  const blob = new Blob([JSON.stringify(envelope, null, 2)], {
+    type: 'application/json',
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `chenpilot-contacts-${new Date().toISOString().slice(0, 10)}.json`;
+  anchor.click();
+  // Release the object URL to free memory after a short delay
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+// ---------------------------------------------------------------------------
+// Blank form state
+// ---------------------------------------------------------------------------
+const blankForm = (): CreateContactRequest => ({
+  name: '',
+  address: '',
+  tokenType: 'XLM',
+  defaultMemo: '',
+  defaultMemoType: 'none',
+});
 export default function ContactsPage() {
   const router = useRouter();
   const dispatch = useAppDispatch();
@@ -84,89 +143,7 @@ export default function ContactsPage() {
     (contact) =>
       contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       contact.address.toLowerCase().includes(searchTerm.toLowerCase()),
-  );uter]);
-const createEmptyContactForm = (): CreateContactRequest => ({
-  name: '',
-  address: '',
-  tokenType: 'XLM',
-  note: '',
-});
-// ---------------------------------------------------------------------------
-// Token options aligned with backend contract
-// ---------------------------------------------------------------------------
-const TOKEN_OPTIONS = ['XLM', 'USDC', 'USDT', 'BTC', 'ETH'] as const;
-const MEMO_TYPE_OPTIONS: { value: ContactMemoType; label: string }[] = [
-  { value: 'none', label: 'No default memo' },
-  { value: 'text', label: 'Text' },
-  { value: 'id', label: 'ID (numeric)' },
-  { value: 'hash', label: 'Hash (hex)' },
-];
-
-// ---------------------------------------------------------------------------
-// Local export helper — purely client-side, no data leaves the device
-// ---------------------------------------------------------------------------
-function exportContactsAsJson(contacts: Contact[]): void {
-  const envelope: ContactExportEnvelope = {
-    format: 'chenpilot-contacts-v1',
-    exportedAt: new Date().toISOString(),
-    contacts: contacts.map((c) => ({
-      name: c.name,
-      address: c.address,
-      tokenType: c.tokenType,
-      defaultMemo: c.defaultMemo,
-      defaultMemoType: c.defaultMemoType,
-      isFavorite: c.isFavorite,
-      createdAt: c.createdAt,
-    })),
-  };
-  const blob = new Blob([JSON.stringify(envelope, null, 2)], {
-    type: 'application/json',
-  });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `chenpilot-contacts-${new Date().toISOString().slice(0, 10)}.json`;
-  anchor.click();
-  // Release the object URL to free memory after a short delay
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-}
-
-// ---------------------------------------------------------------------------
-// Blank form state
-// ---------------------------------------------------------------------------
-const blankForm = (): CreateContactRequest => ({
-  name: '',
-  address: '',
-  tokenType: 'XLM',
-  defaultMemo: '',
-  defaultMemoType: 'none',
-});
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
-import { ImportPreviewModal } from '@/components/contacts/ImportPreviewModal';
-import { validateContactAddress, normalizeContactAddress } from '@/utils/validation';
-import { parseImportFile } from '@/utils/contactsImport';
-import type { ContactsImportPreview } from '@/utils/contactsImport';
-import { PAGINATION } from '@/constants';
-import { buildClipboardFallbackMessage, copyTextToClipboard } from '@/utils/clipboard';
-
-export default function ContactsPage() {
-  const router = useRouter();
-  const dispatch = useAppDispatch();
-  const { isAuthenticated } = useAppSelector((state) => state.auth);
-  const { list: contacts, isLoading, mutating, mutationError } = useAppSelector(
-    (state) => state.contacts,
-  );
-  const [searchTerm, setSearchTerm] = useState('');
-  const [contactsPage, setContactsPage] = useState(1);
-
-  // Create modal
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  // Edit modal
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isAddressChangeConfirmationOpen, setIsAddressChangeConfirmationOpen] = useState(false);
+  );e);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [pendingContactAction, setPendingContactAction] = useState<'create' | 'update' | null>(null);
   const createFormRef = useRef<HTMLFormElement>(null);
