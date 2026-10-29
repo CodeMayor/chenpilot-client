@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useId,useRef } from 'react';
+import React, { useState, useEffect, useId, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppDispatch, useAppSelector } from '@/store';
 import {
@@ -13,7 +13,6 @@ import {
   paginateContacts,
   filterContacts,
   getContacts,
-  paginateContacts,
   updateContact,
 } from '@/store/slices/contactsSlice';
 import { Button } from '@/components/ui/Button';
@@ -33,19 +32,24 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { formatAddress } from '@/utils/format';
-import { Contact, CreateContactRequest, SUPPORTED_ASSETS, TokenType } from '@/types';
-  Download,
-  Loader2,
-  AlertCircle,
-} from 'lucide-react';
-import { formatAddress } from '@/utils/format';
-import { Contact, ContactExportEnvelope, ContactMemoType, CreateContactRequest } from '@/types';
+import { Contact, CreateContactRequest, ContactExportEnvelope, ContactMemoType } from '@/types';
 import toast from 'react-hot-toast';
+
+
+
+
+const createEmptyContactForm = (): CreateContactRequest => ({
+  name: '',
+  address: '',
+  tokenType: 'XLM',
+  note: '',
+});
 
 // ---------------------------------------------------------------------------
 // Token options aligned with backend contract
 // ---------------------------------------------------------------------------
 const TOKEN_OPTIONS = ['XLM', 'USDC', 'USDT', 'BTC', 'ETH'] as const;
+
 const MEMO_TYPE_OPTIONS: { value: ContactMemoType; label: string }[] = [
   { value: 'none', label: 'No default memo' },
   { value: 'text', label: 'Text' },
@@ -92,28 +96,6 @@ const blankForm = (): CreateContactRequest => ({
   defaultMemo: '',
   defaultMemoType: 'none',
 });
-
-// ---------------------------------------------------------------------------
-// Page
-// ---------------------------------------------------------------------------
-import { ImportPreviewModal } from '@/components/contacts/ImportPreviewModal';
-import { Users, Plus, Search, Edit, Trash2, Copy, QrCode, Upload } from 'lucide-react';
-import { formatAddress } from '@/utils/format';
-import { validateContactAddress, normalizeContactAddress } from '@/utils/validation';
-import { parseImportFile } from '@/utils/contactsImport';
-import type { ContactsImportPreview, ValidImportRow } from '@/utils/contactsImport';
-import { Contact, CreateContactRequest } from '@/types';
-import { PAGINATION } from '@/constants';
-import { buildClipboardFallbackMessage, copyTextToClipboard } from '@/utils/clipboard';
-import toast from 'react-hot-toast';
-
-const createEmptyContactForm = (): CreateContactRequest => ({
-  name: '',
-  address: '',
-  tokenType: 'XLM',
-  note: '',
-});
-
 export default function ContactsPage() {
   const router = useRouter();
   const dispatch = useAppDispatch();
@@ -121,7 +103,6 @@ export default function ContactsPage() {
   const { list: contacts, isLoading, mutating, mutationError } = useAppSelector(
     (state) => state.contacts,
   );
-  const { list: contacts, isLoading } = useAppSelector((state) => state.contacts);
   const [searchTerm, setSearchTerm] = useState('');
   const [contactsPage, setContactsPage] = useState(1);
 
@@ -134,13 +115,6 @@ export default function ContactsPage() {
   const [pendingContactAction, setPendingContactAction] = useState<'create' | 'update' | null>(null);
   const createFormRef = useRef<HTMLFormElement>(null);
   const editFormRef = useRef<HTMLFormElement>(null);
-  const [formData, setFormData] = useState<CreateContactRequest>(createEmptyContactForm);
-
-  const [formData, setFormData] = useState<CreateContactRequest>({
-    name: '',
-    address: '',
-    tokenType: 'XLM',
-  });
   const [formData, setFormData] = useState<CreateContactRequest>(createEmptyContactForm());
   const [addressError, setAddressError] = useState<string | null>(null);
 
@@ -169,11 +143,33 @@ export default function ContactsPage() {
     (contact) =>
       contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       contact.address.toLowerCase().includes(searchTerm.toLowerCase()),
-    (c) =>
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.address.toLowerCase().includes(searchTerm.toLowerCase()),
-  );
-    void dispatch(getContacts());
+  );e);
+  const [editingContact, setEditingContact] = useState<Contact | null>(null);
+  const [pendingContactAction, setPendingContactAction] = useState<'create' | 'update' | null>(null);
+  const createFormRef = useRef<HTMLFormElement>(null);
+  const editFormRef = useRef<HTMLFormElement>(null);
+  const [formData, setFormData] = useState<CreateContactRequest>(createEmptyContactForm());
+  const [addressError, setAddressError] = useState<string | null>(null);
+
+  // Import state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importPreview, setImportPreview] = useState<ContactsImportPreview | null>(null);
+  const [isImportPreviewOpen, setIsImportPreviewOpen] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+
+  /** Timer refs keyed by contact id so multiple undo windows can coexist. */
+  const undoTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // IDs for accessible live-region and search label
+  const searchId = useId();
+  const resultCountId = useId();
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      router.push('/auth/login');
+      return;
+    }
+    dispatch(getContacts());
   }, [dispatch, isAuthenticated, router]);
 
   const filteredContacts = filterContacts(contacts, searchTerm);
@@ -181,14 +177,13 @@ export default function ContactsPage() {
   const currentContactsPage = Math.min(contactsPage, Math.max(1, pageCount));
   const visibleContacts = paginateContacts(filteredContacts, currentContactsPage);
 
-  const submitCreateContact = async () => {
   const favoriteCount = contacts.filter((c) => c.isFavorite).length;
 
   // ─── Create / Edit ───────────────────────────────────────────────────────────
 
   // ── Create ──────────────────────────────────────────────────────────────
   const handleCreateContact = async (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault();entDefault();
     dispatch(clearCreateError());
     const addrErr = validateContactAddress(formData.address);
     if (addrErr) { setAddressError(addrErr); return; }

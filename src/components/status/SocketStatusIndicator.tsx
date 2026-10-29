@@ -1,41 +1,33 @@
 'use client';
 
 import React from 'react';
-import { useSocketConnection } from '@/hooks/useSocket';
-import { Wifi, WifiOff, RefreshCw } from 'lucide-react';
+import { useOptionalSocket } from '@/components/providers/SocketProvider';
+import type { SocketConnectionState } from '@/types/socket';
 
-export function SocketStatusIndicator() {
-  const { isConnected, isReconnecting, isExhausted, reconnectAttempt, maxReconnectAttempts, retry } =
-    useSocketConnection();
+export const SocketStatusIndicator: React.FC = () => {
+  const socket = useOptionalSocket();
+  const state: SocketConnectionState = socket?.connectionState ?? 'idle';
+
+  const getBadgeColor = () => {
+    switch (state) {
+      case 'connected':
+        return 'bg-green-500';
+      case 'connecting':
+      case 'reconnecting':
+        return 'bg-yellow-500 animate-pulse';
+      case 'exhausted':
+      case 'failed':
+      case 'disconnected':
+        return 'bg-red-500';
+      default:
+        return 'bg-gray-400';
+    }
+  };
 
   return (
-    <div className="flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-medium">
-      {isConnected ? (
-        <>
-          <Wifi className="w-4 h-4 text-green-500" />
-          <span className="text-green-500">Connected</span>
-        </>
-      ) : isReconnecting ? (
-        <>
-          <RefreshCw className="w-4 h-4 text-yellow-500 animate-spin" />
-          <span className="text-yellow-500">
-            Reconnecting{reconnectAttempt > 0 ? ` (${reconnectAttempt}/${maxReconnectAttempts})` : '…'}
-          </span>
-        </>
-      ) : isExhausted ? (
-        <>
-          <WifiOff className="w-4 h-4 text-red-500" />
-          <span className="text-red-500">Connection lost</span>
-          <button type="button" onClick={retry} className="underline text-red-500">
-            Retry
-          </button>
-        </>
-      ) : (
-        <>
-          <WifiOff className="w-4 h-4 text-red-500" />
-          <span className="text-red-500">Disconnected</span>
-        </>
-      )}
+    <div className="flex items-center gap-2 text-xs font-medium px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+      <span className={`w-2.5 h-2.5 rounded-full ${getBadgeColor()}`} />
+      <span className="capitalize">{state}</span>
     </div>
   );
-}
+};
