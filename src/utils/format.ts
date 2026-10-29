@@ -1,4 +1,5 @@
 import { Language, getLocaleForLanguage } from '@/lib/i18n/i18n';
+import type { ChatMessage } from '@/types';
 
 /**
  * Standard asset decimal precisions on Stellar and supported networks.
@@ -588,4 +589,127 @@ export function clearChatDraft(conversationId: string): void {
   if (!(conversationId in drafts)) return;
   delete drafts[conversationId];
   writeChatDrafts(drafts);
+}
+
+// ── Conversation export (#96) ────────────────────────────────────────────────
+// Pure helpers: they serialise a ChatMessage[] taken from state.chat.messages, so
+// an export cannot drift from the rendered conversation.
+
+export type ConversationExportFormat = 'markdown' | 'json';
+
+const EXPORT_EXTENSIONS: Record<ConversationExportFormat, string> = {
+  markdown: 'md',
+  json: 'json',
+};
+
+export const EXPORT_MIME_TYPES: Record<ConversationExportFormat, string> = {
+  markdown: 'text/markdown;charset=utf-8',
+  json: 'application/json;charset=utf-8',
+};
+
+/** Deterministic name, e.g. `chenpilot-conversation-abc123-2026-10-28.md`. */
+export function conversationExportFileName(
+  conversationId: string,
+  format: ConversationExportFormat,
+  date: string | Date,
+): string {
+  const day = (typeof date === 'string' ? new Date(date) : date).toISOString().slice(0, 10);
+  const safeId = conversationId.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'conversation';
+  return `chenpilot-conversation-${safeId}-${day}.${EXPORT_EXTENSIONS[format]}`;
+}
+
+/** JSON export: the `ChatMessage[]` itself, so `JSON.parse` returns every field unchanged. */
+export function serializeConversationJson(messages: ChatMessage[]): string {
+  return `${JSON.stringify(messages, null, 2)}\n`;
+}
+
+const ROLE_HEADINGS: Record<ChatMessage['type'], string> = {
+  user: 'User',
+  agent: 'Agent',
+  system: 'System',
+};
+
+function fenced(language: string, body: string): string {
+  // A fence longer than any backtick run in the body keeps the block intact.
+  const longest = (body.match(/`+/g) ?? []).reduce((max, run) => Math.max(max, run.length), 0);
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return `${fence}${language}\n${body}\n${fence}`;
+}
+
+/** Content that is a JSON object or array is structured; everything else is prose. */
+function structuredContent(content: string): string | null {
+  const trimmed = content.trim();
+  if (!(trimmed.startsWith('{') || trimmed.startsWith('['))) return null;
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    return typeof parsed === 'object' && parsed !== null ? JSON.stringify(parsed, null, 2) : null;
+  } catch {
+    return null;
+  }
+}
+
+function traceSummary(trace: NonNullable<ChatMessage['metadata']>['executionTrace']): string[] {
+  if (!trace) return [];
+  const lines = [
+    `**Execution trace**: ${trace.steps.length} step${trace.steps.length === 1 ? '' : 's'}, ${trace.totalTime} ms (${trace.startTime} to ${trace.endTime})`,
+    '',
+  ];
+  const walk = (steps: typeof trace.steps, depth: number) => {
+    for (const step of steps) {
+      lines.push(`${'  '.repeat(depth)}- [${step.type}] ${step.name} (${step.duration} ms): ${step.description}`);
+      if (step.substeps?.length) walk(step.substeps, depth + 1);
+    }
+  };
+  walk(trace.steps, 0);
+  return lines;
+}
+
+/** Markdown transcript: role headings, ISO timestamps, fenced structured content and trace summaries. */
+export function serializeConversationMarkdown(
+  messages: ChatMessage[],
+  options: { title?: string } = {},
+): string {
+  const out: string[] = [`# ${options.title?.trim() || 'ChenPilot conversation'}`, ''];
+
+  for (const message of messages) {
+    out.push(`## ${ROLE_HEADINGS[message.type] ?? message.type} · ${message.timestamp}`, '');
+
+    if (message.messageType === 'voice') {
+      const transcript = message.voice?.transcript?.trim();
+      out.push(
+        transcript ? transcript : '_Voice message (no transcript)._',
+        '',
+        `_Voice: ${message.voice?.duration ?? 0}s, ${message.voice?.mimeType ?? 'unknown format'}_`,
+        '',
+      );
+    } else {
+      const structured = structuredContent(message.content);
+      out.push(structured ? fenced('json', structured) : message.content, '');
+    }
+
+    const meta = message.metadata;
+    if (meta?.transactionHash) out.push(`- Transaction: \`${meta.transactionHash}\``);
+    if (meta?.amount) out.push(`- Amount: ${meta.amount}${meta.tokenType ? ` ${meta.tokenType}` : ''}`);
+    if (meta?.status) out.push(`- Status: ${meta.status}`);
+    if (meta?.error) out.push(`- Error: ${meta.error}`);
+    if (meta?.transactionHash || meta?.amount || meta?.status || meta?.error) out.push('');
+
+    const trace = traceSummary(meta?.executionTrace);
+    if (trace.length > 0) out.push(...trace, '');
+  }
+
+  return `${out.join('\n').trimEnd()}\n`;
+}
+
+/** Triggers a browser download of `content`. Kept separate from the serialisers so they stay pure. */
+export function downloadTextFile(fileName: string, content: string, mimeType: string): void {
+  if (typeof document === 'undefined') return;
+  const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }

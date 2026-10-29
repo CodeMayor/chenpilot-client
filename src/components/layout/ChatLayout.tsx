@@ -1,20 +1,18 @@
 "use client";
 
 import React, { useState } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useAppDispatch, useAppSelector } from "@/store";
 import { logout } from "@/store/slices/authSlice";
-import { toggleTheme } from "@/store/slices/uiSlice";
 import {
-  clearMessages,
   startNewChat,
   loadChatHistory,
-  deleteChatHistory,
   loadConversationsLocally,
   deleteConversation,
   setCurrentConversation,
 } from "@/store/slices/chatSlice";
 import { ConversationManager } from "@/components/chat/ConversationManager";
+import { ConversationExportMenu } from "@/components/chat/ConversationExportMenu";
 import { DeleteConversationDialog } from "@/components/chat/DeleteConversationDialog";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import { Button } from "@/components/ui/Button";
@@ -29,10 +27,8 @@ interface ChatLayoutProps {
 
 export function ChatLayout({ children }: ChatLayoutProps) {
   const router = useRouter();
-  const pathname = usePathname();
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
-  const theme = useAppSelector((state) => state.ui) || { mode: "dark" };
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -40,7 +36,7 @@ export function ChatLayout({ children }: ChatLayoutProps) {
   const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null);
 
   // Get chat history from Redux store
-  const { chatHistory, currentConversation, conversations } = useAppSelector(
+  const { chatHistory, currentConversation, conversations, messages } = useAppSelector(
     (state) => state.chat,
   );
 
@@ -123,17 +119,13 @@ export function ChatLayout({ children }: ChatLayoutProps) {
       await dispatch(logout()).unwrap();
       toast.success("Successfully logged out!");
       router.push("/auth/login");
-    } catch (error: any) {
+    } catch (error: unknown) {
       const errorMessage =
         error instanceof Error
           ? error.message
           : String(error || "Logout failed");
       toast.error(errorMessage);
     }
-  };
-
-  const handleThemeToggle = () => {
-    dispatch(toggleTheme());
   };
 
   // Load conversations from localStorage on component mount
@@ -274,6 +266,17 @@ export function ChatLayout({ children }: ChatLayoutProps) {
               )}
             </Button>
           </div>
+
+          {/* Export the active conversation (#96) */}
+          {!sidebarCollapsed && (
+            <div className="px-4 pb-3">
+              <ConversationExportMenu
+                messages={messages}
+                conversationId={currentConversation?.id}
+                title={currentConversation?.title}
+              />
+            </div>
+          )}
 
           {/* Chat History */}
           <div className="flex-1 overflow-y-auto px-4">
