@@ -138,7 +138,7 @@ importers:
         version: 0.1.0(vitest@4.1.10)
 
 packages:
-  '@hookform/resolvers@5.2.2':
+  '@hookform/resolvers@5.2.2(react@19.1.0)':
     resolution: {integrity: sha512-test}
   '@reduxjs/toolkit@2.9.0':
     resolution: {integrity: sha512-test}
