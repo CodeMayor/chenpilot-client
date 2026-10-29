@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 import { logger } from "../utils/logger";
+import { env } from '@/config/env';
 import {
   RegisterRequest,
   LoginRequest,
