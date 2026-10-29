@@ -23,7 +23,7 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@hookform/resolvers": "^5.2.2",
+    "@hookform/resolvers": "^3.9.0",
     "@reduxjs/toolkit": "^2.9.0",
     "@types/qrcode": "^1.5.5",
     "axios": "^1.12.2",
