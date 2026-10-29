@@ -5,6 +5,30 @@ import { useAppDispatch, useAppSelector } from '@/store';
 import { setOnlineStatus, loadMessageQueue } from '@/store/slices/chatSlice';
 import { WifiOff, Wifi } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { useOptionalSocket } from '@/components/providers/SocketProvider';
+import { isSocketStatusVisible, type SocketConnectionState } from '@/types/socket';
+
+/** Status-line copy for each visible socket state (#279). */
+export function describeSocketState(
+  state: SocketConnectionState,
+  attempt = 0,
+  maxAttempts = 0,
+): string | null {
+  switch (state) {
+    case 'connecting':
+      return 'Connecting to live updates…';
+    case 'reconnecting':
+      return maxAttempts > 0 && attempt > 0
+        ? `Reconnecting to live updates (attempt ${attempt} of ${maxAttempts})…`
+        : 'Reconnecting to live updates…';
+    case 'exhausted':
+      return 'Live updates unavailable • could not reconnect';
+    case 'disconnected':
+      return 'Live updates disconnected';
+    default:
+      return null;
+  }
+}
 
 interface OfflineIndicatorProps {
   canRetry?: boolean;
@@ -18,6 +42,13 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
   const dispatch = useAppDispatch();
   const { isOnline, messageQueue } = useAppSelector((state) => state.chat);
   const [connectionRestored, setConnectionRestored] = React.useState(false);
+  const socket = useOptionalSocket();
+  const socketState: SocketConnectionState = socket?.connectionState ?? 'unknown';
+  const socketMessage = isSocketStatusVisible(socketState)
+    ? describeSocketState(socketState, socket?.reconnectAttempt, socket?.maxReconnectAttempts)
+    : null;
+  const canRetrySocket =
+    socket !== undefined && (socketState === 'exhausted' || socketState === 'disconnected');
 
   useEffect(() => {
     // Load queue on mount
@@ -51,7 +82,7 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
     return () => window.clearTimeout(timeout);
   }, [canRetry, connectionRestored, messageQueue.length]);
 
-  if (isOnline && messageQueue.length === 0 && !connectionRestored) {
+  if (isOnline && messageQueue.length === 0 && !connectionRestored && !socketMessage) {
     return null;
   }
 
@@ -71,8 +102,15 @@ export const OfflineIndicator: React.FC<OfflineIndicatorProps> = ({
               ? `Online • ${messageQueue.length} message${messageQueue.length !== 1 ? 's' : ''} queued`
               : canRetry
                 ? 'Connection restored • your changes are ready to retry'
-                : 'Connection restored'}
+                : connectionRestored
+                  ? 'Connection restored'
+                  : socketMessage}
           </span>
+          {canRetrySocket && !connectionRestored && messageQueue.length === 0 && (
+            <Button type="button" size="sm" variant="secondary" onClick={socket.retry}>
+              Retry
+            </Button>
+          )}
           {connectionRestored && canRetry && onRetry && (
             <Button
               type="button"
