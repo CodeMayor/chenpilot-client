@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useId,useRef } from 'react';
+import React, { useState, useEffect, useId, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppDispatch, useAppSelector } from '@/store';
 import {
@@ -13,7 +13,6 @@ import {
   paginateContacts,
   filterContacts,
   getContacts,
-  paginateContacts,
   updateContact,
 } from '@/store/slices/contactsSlice';
 import { Button } from '@/components/ui/Button';
@@ -33,15 +32,16 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { formatAddress } from '@/utils/format';
-import { Contact, CreateContactRequest, SUPPORTED_ASSETS, TokenType } from '@/types';
-  Download,
-  Loader2,
-  AlertCircle,
-} from 'lucide-react';
-import { formatAddress } from '@/utils/format';
-import { Contact, ContactExportEnvelope, ContactMemoType, CreateContactRequest } from '@/types';
+import { Contact, CreateContactRequest, ContactExportEnvelope, ContactMemoType } from '@/types';
 import toast from 'react-hot-toast';
 
+
+const createEmptyContactForm = (): CreateContactRequest => ({
+  name: '',
+  address: '',
+  tokenType: 'XLM',
+  note: '',
+});
 // ---------------------------------------------------------------------------
 // Token options aligned with backend contract
 // ---------------------------------------------------------------------------
@@ -97,22 +97,11 @@ const blankForm = (): CreateContactRequest => ({
 // Page
 // ---------------------------------------------------------------------------
 import { ImportPreviewModal } from '@/components/contacts/ImportPreviewModal';
-import { Users, Plus, Search, Edit, Trash2, Copy, QrCode, Upload } from 'lucide-react';
-import { formatAddress } from '@/utils/format';
 import { validateContactAddress, normalizeContactAddress } from '@/utils/validation';
 import { parseImportFile } from '@/utils/contactsImport';
-import type { ContactsImportPreview, ValidImportRow } from '@/utils/contactsImport';
-import { Contact, CreateContactRequest } from '@/types';
+import type { ContactsImportPreview } from '@/utils/contactsImport';
 import { PAGINATION } from '@/constants';
 import { buildClipboardFallbackMessage, copyTextToClipboard } from '@/utils/clipboard';
-import toast from 'react-hot-toast';
-
-const createEmptyContactForm = (): CreateContactRequest => ({
-  name: '',
-  address: '',
-  tokenType: 'XLM',
-  note: '',
-});
 
 export default function ContactsPage() {
   const router = useRouter();
@@ -121,7 +110,6 @@ export default function ContactsPage() {
   const { list: contacts, isLoading, mutating, mutationError } = useAppSelector(
     (state) => state.contacts,
   );
-  const { list: contacts, isLoading } = useAppSelector((state) => state.contacts);
   const [searchTerm, setSearchTerm] = useState('');
   const [contactsPage, setContactsPage] = useState(1);
 
@@ -134,13 +122,6 @@ export default function ContactsPage() {
   const [pendingContactAction, setPendingContactAction] = useState<'create' | 'update' | null>(null);
   const createFormRef = useRef<HTMLFormElement>(null);
   const editFormRef = useRef<HTMLFormElement>(null);
-  const [formData, setFormData] = useState<CreateContactRequest>(createEmptyContactForm);
-
-  const [formData, setFormData] = useState<CreateContactRequest>({
-    name: '',
-    address: '',
-    tokenType: 'XLM',
-  });
   const [formData, setFormData] = useState<CreateContactRequest>(createEmptyContactForm());
   const [addressError, setAddressError] = useState<string | null>(null);
 
@@ -169,12 +150,7 @@ export default function ContactsPage() {
     (contact) =>
       contact.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       contact.address.toLowerCase().includes(searchTerm.toLowerCase()),
-    (c) =>
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.address.toLowerCase().includes(searchTerm.toLowerCase()),
-  );
-    void dispatch(getContacts());
-  }, [dispatch, isAuthenticated, router]);
+  );uter]);
 
   const filteredContacts = filterContacts(contacts, searchTerm);
   const pageCount = Math.ceil(filteredContacts.length / PAGINATION.CONTACTS_PAGE_SIZE);
