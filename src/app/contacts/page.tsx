@@ -121,7 +121,6 @@ export default function ContactsPage() {
   const { list: contacts, isLoading, mutating, mutationError } = useAppSelector(
     (state) => state.contacts,
   );
-  const { list: contacts, isLoading } = useAppSelector((state) => state.contacts);
   const [searchTerm, setSearchTerm] = useState('');
   const [contactsPage, setContactsPage] = useState(1);
 
@@ -134,13 +133,6 @@ export default function ContactsPage() {
   const [pendingContactAction, setPendingContactAction] = useState<'create' | 'update' | null>(null);
   const createFormRef = useRef<HTMLFormElement>(null);
   const editFormRef = useRef<HTMLFormElement>(null);
-  const [formData, setFormData] = useState<CreateContactRequest>(createEmptyContactForm);
-
-  const [formData, setFormData] = useState<CreateContactRequest>({
-    name: '',
-    address: '',
-    tokenType: 'XLM',
-  });
   const [formData, setFormData] = useState<CreateContactRequest>(createEmptyContactForm());
   const [addressError, setAddressError] = useState<string | null>(null);
 
