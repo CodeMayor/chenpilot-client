@@ -24,6 +24,52 @@ import { RefreshCw, ReceiptText } from "lucide-react";
 import type { StellarTransaction } from "@/types";
 import TransactionDetailsDrawer from "@/components/dashboard/TransactionDetailsDrawer";
 
+// ---------------------------------------------------------------------------
+// Memo rendering helpers
+// ---------------------------------------------------------------------------
+
+/** Truncation limit for displayed memo values; full text is kept in title. */
+const MEMO_TRUNCATE_LEN = 40;
+
+function truncateMemo(value: string): string {
+  return value.length > MEMO_TRUNCATE_LEN
+    ? `${value.slice(0, MEMO_TRUNCATE_LEN)}…`
+    : value;
+}
+
+type MemoType = "text" | "id" | "hash" | "return" | undefined;
+
+function MemoDisplay({
+  memo,
+  memoType,
+}: {
+  memo: string | undefined;
+  memoType: MemoType;
+}) {
+  if (!memo || !memoType) return null;
+
+  const label: Record<NonNullable<MemoType>, string> = {
+    text: "Text",
+    id: "ID",
+    hash: "Hash",
+    return: "Return",
+  };
+
+  const tag = label[memoType] ?? memoType.toUpperCase();
+
+  return (
+    <div className="mt-2 flex items-start gap-2 text-xs">
+      <span className="shrink-0 rounded bg-gray-700 px-1.5 py-0.5 font-mono uppercase tracking-wide text-gray-300">
+        {tag}
+      </span>
+      <span
+        className="truncate text-gray-400"
+        title={memo}
+      >
+        {truncateMemo(memo)}
+      </span>
+    </div>
+  );
 /**
  * Format a timestamp for display, tolerating missing/invalid values so a bad
  * value never renders "Invalid Date" to the user.
@@ -59,6 +105,8 @@ export default function TransactionsPage() {
     () => transactions.pending.filter((entry) => entry.status === "pending"),
     [transactions.pending],
   );
+
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     if (publicKey) {
@@ -97,20 +145,20 @@ export default function TransactionsPage() {
     );
   }, [dispatch, publicKey, transactions.nextCursor]);
 
-  const getStatusColor = (successful: boolean) => {
-    return successful ? "text-green-600" : "text-red-600";
-  };
+  const filtered = useMemo(
+    () => filterTransactionsByHash(transactions.transactions, searchQuery) as StellarTransaction[],
+    [transactions.transactions, searchQuery],
+  );
+
+  const getStatusColor = (successful: boolean) =>
+    successful ? "text-green-600" : "text-red-600";
 
   const getOperationType = (type: string) => {
     switch (type) {
-      case "create_account":
-        return "Funding";
-      case "payment":
-        return "Payment";
-      case "trust":
-        return "Trust";
-      default:
-        return type.replace("_", " ").toUpperCase();
+      case "create_account": return "Funding";
+      case "payment":        return "Payment";
+      case "trust":          return "Trust";
+      default:               return type.replace("_", " ").toUpperCase();
     }
   };
 
@@ -267,8 +315,37 @@ export default function TransactionsPage() {
                 {tx.operations.length ? tx.operations.map((op) => (
                   <div
                     key={op.id}
-                    className="flex justify-between items-center bg-gray-50 p-2 rounded"
+                    className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 p-2 rounded"
                   >
+          {/* No-match state */}
+          {filtered.length === 0 ? (
+            <Card className="text-center py-10">
+              <p className="text-gray-500 dark:text-gray-400 mb-3">
+                No transactions match{" "}
+                <span className="font-mono text-sm break-all">{searchQuery}</span>
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setSearchQuery("")}
+                className="inline-flex items-center gap-2"
+              >
+                <X aria-hidden="true" className="h-4 w-4" />
+                Clear search
+              </Button>
+            </Card>
+          ) : (
+            <>
+              {searchQuery && (
+                <p className="text-sm text-gray-500 dark:text-gray-400" aria-live="polite">
+                  {filtered.length} result{filtered.length !== 1 ? "s" : ""} for{" "}
+                  <span className="font-mono break-all">{searchQuery}</span>
+                </p>
+              )}
+
+              {filtered.map((tx) => (
+                <Card key={tx.id} className="p-4">
+                  <div className="flex justify-between items-start mb-2">
                     <div>
                       <span className="font-medium">
                         {getOperationType(op.type)}
@@ -279,9 +356,8 @@ export default function TransactionsPage() {
                         </span>
                       )}
                     </div>
-                    <div className="text-sm text-gray-600">
-                      {op.to && `To: ${op.to.slice(0, 8)}...`}
-                      {op.from && `From: ${op.from.slice(0, 8)}...`}
+                    <div className={`font-semibold ${getStatusColor(tx.successful)}`}>
+                      {tx.successful ? "Confirmed" : "Failed"}
                     </div>
                   </div>
                 )) : <p className="text-sm text-gray-500">No operation details available.</p>}

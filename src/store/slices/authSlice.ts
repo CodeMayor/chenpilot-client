@@ -1,6 +1,11 @@
 import { createSlice, createAsyncThunk, PayloadAction } from "@reduxjs/toolkit";
 import { User, LoginRequest, RegisterRequest } from "@/types";
 import apiService from "@/services/api";
+import { normalizeAuthError } from "@/services/auth.service";
+import { clearUserScopedStorage, fromPersistedUser, toPersistedUser } from "@/services/storageInventory";
+
+export const LOGIN_FIELDS = ["email", "password"] as const;
+export const REGISTER_FIELDS = ["name", "email", "password"] as const;
 
 interface AuthState {
   user: User | null;
@@ -268,15 +273,20 @@ const authSlice = createSlice({
         // Save to localStorage for persistence
         if (typeof window !== "undefined") {
           localStorage.setItem("auth_token", action.payload.token);
+          // Persist a minimized profile only; no wallet address or public key (#256)
           localStorage.setItem(
             "user_data",
-            JSON.stringify(action.payload.user),
+            JSON.stringify(toPersistedUser(action.payload.user)),
           );
         }
       })
       .addCase(login.rejected, (state, action) => {
         state.isLoading = false;
-        state.error = action.payload as string;
+        // Payload is a NormalizedAuthError (#258); keep only the safe general message in state
+        state.error =
+          (action.payload as { message?: string } | undefined)?.message ??
+          action.error.message ??
+          "Authentication failed";
         state.isAuthenticated = false;
       })
       // Register
@@ -293,15 +303,20 @@ const authSlice = createSlice({
         // Save to localStorage for persistence
         if (typeof window !== "undefined") {
           localStorage.setItem("auth_token", action.payload.token);
+          // Persist a minimized profile only; no wallet address or public key (#256)
           localStorage.setItem(
             "user_data",
-            JSON.stringify(action.payload.user),
+            JSON.stringify(toPersistedUser(action.payload.user)),
           );
         }
       })
       .addCase(register.rejected, (state, action) => {
         state.isLoading = false;
-        state.error = action.payload as string;
+        // Payload is a NormalizedAuthError (#258); keep only the safe general message in state
+        state.error =
+          (action.payload as { message?: string } | undefined)?.message ??
+          action.error.message ??
+          "Authentication failed";
         state.isAuthenticated = false;
       })
       // Logout
@@ -312,12 +327,8 @@ const authSlice = createSlice({
         state.error = null;
         state.sessionExpirationTime = null;
         state.isSessionWarningActive = false;
-        // Clear localStorage on logout
-        if (typeof window !== "undefined") {
-          localStorage.removeItem("auth_token");
-          localStorage.removeItem("user_data");
-          localStorage.removeItem("session_expiration");
-        }
+        // Clear every user-scoped key on logout (#256)
+        clearUserScopedStorage();
       })
       // Load User
       .addCase(loadUser.pending, (state) => {

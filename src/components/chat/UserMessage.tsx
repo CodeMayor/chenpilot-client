@@ -12,8 +12,26 @@ interface UserMessageProps {
   onCopy?: (text: string) => void;
   onEdit?: (messageId: string, newContent: string) => void;
   onReply?: (messageId: string) => void;
+  /** Resend a message that failed to reach the service (#266). */
+  onRetry?: (message: ChatMessage) => void;
 }
 
+const markdownComponents: Components = {
+  p: ({ children, ...props }) => <p className="mb-2 last:mb-0" {...props}>{children}</p>,
+  strong: ({ children, ...props }) => <strong className="font-semibold text-white" {...props}>{children}</strong>,
+  em: ({ children, ...props }) => <em className="italic text-gray-200" {...props}>{children}</em>,
+  code: ({ children, ...props }) => (
+    <code className="rounded bg-gray-800 px-1 py-0.5 text-sm text-green-400" {...props}>{children}</code>
+  ),
+  pre: ({ children, ...props }) => (
+    <pre className="my-2 overflow-x-auto rounded-lg bg-gray-900 p-3 text-gray-100" {...props}>{children}</pre>
+  ),
+  ul: ({ children, ...props }) => <ul className="mb-2 list-inside list-disc space-y-1" {...props}>{children}</ul>,
+  ol: ({ children, ...props }) => <ol className="mb-2 list-inside list-decimal space-y-1" {...props}>{children}</ol>,
+  li: ({ children, ...props }) => <li className="text-gray-200" {...props}>{children}</li>,
+};
+
+export default function UserMessage({ message, onCopy, onEdit, onReply }: UserMessageProps) {
 export default function UserMessage({
   message,
   onCopy,
@@ -21,14 +39,13 @@ export default function UserMessage({
   onReply,
 }: UserMessageProps) {
   const { pendingMessages } = useAppSelector((state) => state.chat);
-  const isPending = pendingMessages.has(message.id);
+  const delivery = getDeliveryState(message);
+  const isPending = delivery === "sending" || (delivery === undefined && pendingMessages.has(message.id));
+  const isQueued = delivery === "queued";
+  const isFailed = delivery === "failed";
   const [copied, setCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
-  const [editContent, setEditContent] = useState(
-    typeof message.content === "string"
-      ? message.content
-      : JSON.stringify(message.content),
-  );
+  const [editContent, setEditContent] = useState(message.content);
 
   const contentText =
     typeof message.content === "string"
@@ -67,10 +84,44 @@ export default function UserMessage({
     }
   };
 
+  // Track a running offset so each text node in the markdown gets the right
+  // global match index. We accumulate it across node renders using a ref-like
+  // mutable object that is re-created on each component render (but stable
+  // within the single ReactMarkdown render pass).
+  const offsetTracker = useMemo(() => ({ current: searchMatchOffset }), [searchMatchOffset]);
+
+  /**
+   * Wrap a child string (text node inside a ReactMarkdown component) with
+   * HighlightedText, advancing the running offset by the number of matches.
+   */
+  const wrapChildren = (children: React.ReactNode): React.ReactNode => {
+    if (!searchQuery) return children;
+    if (typeof children === 'string') {
+      const matchCount = findMatches(children, searchQuery).length;
+      const offset = offsetTracker.current;
+      offsetTracker.current += matchCount;
+      return (
+        <HighlightedText
+          text={children}
+          query={searchQuery}
+          activeIndex={searchActiveIndex}
+          matchOffset={offset}
+        />
+      );
+    }
+    // React.Children are already nodes – pass through.
+    return children;
+  };
+
+  const markdownContent =
+    typeof message.content === 'string'
+      ? message.content
+      : JSON.stringify(message.content, null, 2);
+
   return (
     <div className={`max-w-3xl ${isPending ? "opacity-75" : ""} bg-[#7C3AED] text-white rounded-2xl px-6 py-4 group relative`}>
       {isPending && (
-        <div className="absolute -left-8 top-4 flex items-center gap-1 text-xs text-yellow-400">
+        <div role="status" className="absolute -left-8 top-4 flex items-center gap-1 text-xs text-yellow-400">
           <Clock className="h-3 w-3 animate-spin" />
           <span>Sending...</span>
         </div>

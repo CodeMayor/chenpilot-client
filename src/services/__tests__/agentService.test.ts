@@ -119,7 +119,7 @@ describe("AgentService", () => {
 
       const result = await agentService.getMemory("user123");
 
-      expect(result).toEqual(mockMemory);
+      expect(result).toEqual({ ok: true, entries: mockMemory });
     });
 
     it("returns empty array on error", async () => {
@@ -127,7 +127,7 @@ describe("AgentService", () => {
 
       const result = await agentService.getMemory("user123");
 
-      expect(result).toEqual([]);
+      expect(result).toMatchObject({ ok: false, error: { kind: 'unavailable' } });
     });
   });
 

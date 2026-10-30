@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 import { useAppDispatch, useAppSelector } from "@/store";
 import {
   addMessage as reduxAddMessage,
+  setMessageDelivery,
   addPendingMessage,
   queueMessage,
   sendMessage,
@@ -32,6 +33,7 @@ export default function ChatEngine() {
     isTyping,
     isOnline,
     pendingMessages,
+    streamingResponse,
   } = useAppSelector((state) => state.chat);
 
   const [inputValue, setInputValue] = useState("");
@@ -79,6 +81,7 @@ export default function ChatEngine() {
           type: "user",
           content: trimmed,
           timestamp: new Date().toISOString(),
+          metadata: { delivery: "queued", status: "pending", optimisticId: msgId, tempId: msgId },
         };
         dispatch(queueMessage({ id: msgId, query: messageText }));
         dispatch(reduxAddMessage(optimisticMessage));
@@ -107,6 +110,14 @@ export default function ChatEngine() {
   const renderInput = (isSticky = false) => (
     <div className={`w-full ${isSticky ? "max-w-4xl mx-auto px-4 py-6" : "max-w-3xl mb-8"}`}>
       <div className="relative bg-[#1A1A2E] rounded-2xl p-6 border border-gray-800/50 shadow-xl">
+        <ChatDraftComposer
+          inputRef={inputRef}
+          conversationId={currentConversation?.id ?? null}
+          value={inputValue}
+          onChange={setInputValue}
+          onEnter={() => {
+            void handleSendMessage();
+      <div className="rounded-2xl border border-gray-800/50 bg-[#1A1A2E] p-5 shadow-xl">
         <input
           value={inputValue}
           onChange={(event) => setInputValue(event.target.value)}

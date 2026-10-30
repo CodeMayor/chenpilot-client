@@ -5,8 +5,6 @@ import chatReducer, {
   regenerateLastResponse,
   ABORT_ERROR,
   addMessage,
-  addUserMessage,
-  addSystemMessage,
   setMessages,
   updateMessage,
   setTyping,
@@ -198,7 +196,7 @@ describe("chatSlice - Message Ordering & Race Conditions (#86)", () => {
 
     it("resolves optimistic message to success status and updates server timestamp on fulfilled", async () => {
       const serverTime = 1774959000000;
-      (apiService.queryAgent as any).mockResolvedValueOnce({
+      mockQueryAgent.mockResolvedValueOnce({
         result: {
           success: true,
           data: "Here is the response",
@@ -231,14 +229,14 @@ describe("chatSlice - Message Ordering & Race Conditions (#86)", () => {
       let resolveQuery1: (val: any) => void;
       let resolveQuery2: (val: any) => void;
 
-      const p1 = new Promise((resolve) => {
+      const p1 = new Promise<AgentQueryResponse>((resolve) => {
         resolveQuery1 = resolve;
       });
-      const p2 = new Promise((resolve) => {
+      const p2 = new Promise<AgentQueryResponse>((resolve) => {
         resolveQuery2 = resolve;
       });
 
-      (apiService.queryAgent as any)
+      mockQueryAgent
         .mockImplementationOnce(() => p1)
         .mockImplementationOnce(() => p2);
 
@@ -442,9 +440,29 @@ describe("chatSlice - Message Ordering & Race Conditions (#86)", () => {
     });
   });
 
+  it('clears only the sent conversation draft after a successful send', async () => {
+    setChatDraft('conv-keep', 'leave me');
+    setChatDraft('conv-send', 'send me');
+    store.dispatch(setCurrentConversation({
+      id: 'conv-send',
+      title: 'Send',
+      isActive: true,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      userId: 'user_test_123',
+      messageCount: 0,
+    }));
+    (apiService.queryAgent as any).mockResolvedValueOnce({
+      result: { success: true, data: 'ok', serverTimestamp: 1000 },
+    });
+
+    await store.dispatch(sendMessage('hello'));
+
+    expect(getChatDraft('conv-send')).toBe('');
+    expect(getChatDraft('conv-keep')).toBe('leave me');
   describe('Abort and regenerate', () => {
     it('resets loading flags and marks the turn cancelled without an error bubble', async () => {
-      (apiService.queryAgent as any).mockImplementation(
+      mockQueryAgent.mockImplementation(
         (_data: unknown, options?: { signal?: AbortSignal }) =>
           new Promise((_resolve, reject) => {
             options?.signal?.addEventListener('abort', () => {
@@ -482,7 +500,7 @@ describe("chatSlice - Message Ordering & Race Conditions (#86)", () => {
         content: 'old answer',
         timestamp: '2026-09-29T10:00:02.000Z',
       }));
-      (apiService.queryAgent as any).mockResolvedValueOnce({
+      mockQueryAgent.mockResolvedValueOnce({
         result: { success: true, data: 'new answer' },
       });
 

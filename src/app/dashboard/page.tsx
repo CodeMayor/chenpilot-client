@@ -49,20 +49,15 @@ function extractVersionRecords(payload: unknown): PromptVersionRecord[] {
 
   const directCollections = [payload.versions, payload.data, payload.items, payload.results];
   for (const candidate of directCollections) {
-    if (Array.isArray(candidate)) {
-      return candidate.filter(isRecord);
-    }
+    if (Array.isArray(candidate)) return candidate.filter(isRecord);
   }
 
   if (isRecord(payload.data)) {
     const nestedCollections = [payload.data.versions, payload.data.items, payload.data.results];
     for (const candidate of nestedCollections) {
-      if (Array.isArray(candidate)) {
-        return candidate.filter(isRecord);
-      }
+      if (Array.isArray(candidate)) return candidate.filter(isRecord);
     }
   }
-
   return [];
 }
 
@@ -98,7 +93,6 @@ function parseVariables(rawValue: string): { parsed: Record<string, string>; err
       accumulator[key] = entry == null ? "" : typeof entry === "string" ? entry : JSON.stringify(entry);
       return accumulator;
     }, {});
-
     return { parsed: flattened, error: null };
   } catch {
     return { parsed: {}, error: "Variables JSON is invalid." };
@@ -119,22 +113,41 @@ function getPlaceholders(template: string): string[] {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { isAuthenticated, user } = useAppSelector((state) => state.auth);
+  const dispatch = useAppDispatch();
+  const { user, isAuthenticated } = useAppSelector((state) => state.auth);
+  const { status, balance, network, transactions } = useAppSelector((state) => state.account);
+  const { messages } = useAppSelector((state) => state.chat);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [versions, setVersions] = useState<PromptVersion[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingVersions, setIsLoadingVersions] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isActivating, setIsActivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testInput, setTestInput] = useState(DEFAULT_TEST_INPUT);
   const [variablesText, setVariablesText] = useState(DEFAULT_VARIABLES);
 
-  const loadVersions = async (showRefreshState = false) => {
-    if (showRefreshState) {
-      setIsRefreshing(true);
-    } else {
-      setIsLoading(true);
+  useEffect(() => {
+    if (!isAuthenticated) {
+      router.push('/auth/login');
+      return;
     }
+    dispatch(loadUser());
+    dispatch(getAccountStatus());
+    dispatch(getBalance());
+    dispatch(getStellarNetworkStatus());
+  }, [dispatch, isAuthenticated, router]);
+
+  useEffect(() => {
+    if (isAuthenticated && user?.id) {
+      dispatch(getAccountTransactions({ userId: user.id, page: currentPage, limit: pageSize }));
+    }
+  }, [currentPage, dispatch, isAuthenticated, pageSize, user?.id]);
+
+  const loadVersions = async (showRefreshState = false) => {
+    if (showRefreshState) setIsRefreshing(true);
+    else setIsLoadingVersions(true);
 
     try {
       setError(null);
@@ -151,10 +164,10 @@ export default function DashboardPage() {
       const message = requestError instanceof Error ? requestError.message : "Failed to load prompt versions.";
       setError(message);
     } finally {
-      setIsLoading(false);
+      setIsLoadingVersions(false);
       setIsRefreshing(false);
     }
-  };
+  }, [dispatch, user?.id, currentPage, pageSize]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -168,7 +181,7 @@ export default function DashboardPage() {
     () => versions.find((version) => version.id === selectedId) ?? versions[0] ?? null,
     [selectedId, versions],
   );
-
+  const activeVersion = useMemo(() => versions.find((version) => version.isActive) ?? null, [versions]);
   const parsedVariables = useMemo(() => {
     const { parsed, error: parseError } = parseVariables(variablesText);
     return {
@@ -199,10 +212,7 @@ export default function DashboardPage() {
   }, [parsedVariables.variables, selectedVersion]);
 
   const handleActivate = async () => {
-    if (!selectedVersion || selectedVersion.isActive) {
-      return;
-    }
-
+    if (!selectedVersion || selectedVersion.isActive) return;
     setIsActivating(true);
     try {
       await apiService.activatePromptVersion(selectedVersion.id);
@@ -216,9 +226,38 @@ export default function DashboardPage() {
       const message = requestError instanceof Error ? requestError.message : "Failed to activate the selected version.";
       setError(message);
     } finally {
-      setIsActivating(false);
+      setIsDeploying(false);
     }
   };
+
+  const copyText = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error(`Unable to copy ${label.toLowerCase()}.`);
+    }
+  };
+  const quickActions = [
+    {
+      title: 'Send Payment',
+      description: 'Transfer native XLM or custom anchored assets',
+      icon: <Send className="h-5 w-5 text-cyan-400" />,
+      action: () => router.push('/send'),
+    },
+    {
+      title: 'View Transactions',
+      description: 'Check complete ledger history and operations',
+      icon: <Coins className="h-5 w-5 text-emerald-400" />,
+      action: () => router.push('/transactions'),
+    },
+    {
+      title: 'Manage Contacts',
+      description: 'Save Stellar addresses for fast recurring transfers',
+      icon: <Users className="h-5 w-5 text-indigo-400" />,
+      action: () => router.push('/contacts'),
+    },
+  ];
 
   if (!isAuthenticated) {
     return (
@@ -229,6 +268,13 @@ export default function DashboardPage() {
       </div>
     );
   }
+
+  const activePublicKey =
+    status?.publicKey ||
+    status?.address ||
+    user?.publicKey ||
+    user?.address ||
+    '';
 
   return (
     <ChatLayout>
@@ -347,3 +393,4 @@ export default function DashboardPage() {
     </ChatLayout>
   );
 }
+```
